@@ -1,0 +1,6 @@
+{
+  "cacheBust": true,
+  "scripts": [
+    "Jira.js"
+  ]
+}
