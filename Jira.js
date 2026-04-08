@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.6
+// @version      5.7
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -23,6 +23,7 @@ const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
 const LOADER_UPDATE_API_NAME = "__tmBootstrapCheckForUpdatesNow";
+const LOADER_UPDATE_EVENT_NAME = "tm-bootstrap-check-for-updates-now";
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -1181,6 +1182,11 @@ function triggerLoaderUpdateNow(){
         void loaderUpdateApi();
         return;
     }
+
+    try{
+        window.dispatchEvent(new CustomEvent(LOADER_UPDATE_EVENT_NAME));
+        return;
+    }catch{}
 
     requestLoaderForceRefresh();
 

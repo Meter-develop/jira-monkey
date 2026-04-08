@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.0
+// @version      4.1
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -27,6 +27,7 @@
     const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
     const UPDATE_API_NAME = '__tmBootstrapCheckForUpdatesNow';
+    const UPDATE_EVENT_NAME = 'tm-bootstrap-check-for-updates-now';
     const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
     const DEFAULT_SCRIPT_CACHE_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_MANIFEST = {
@@ -880,6 +881,10 @@
     function registerUpdateBridge() {
         const target = getUpdateBridgeTarget();
         target[UPDATE_API_NAME] = () => runManualUpdateCheck();
+        window[UPDATE_API_NAME] = () => runManualUpdateCheck();
+        window.addEventListener(UPDATE_EVENT_NAME, () => {
+            void runManualUpdateCheck();
+        });
     }
 
     function getGrantedApis() {
