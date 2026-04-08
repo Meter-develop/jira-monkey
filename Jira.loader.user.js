@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      3.9
+// @version      4.0
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -26,6 +26,7 @@
     const APPROVED_SOURCE_STORE_KEY = 'tm-bootstrap-approved-sources-v1';
     const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
+    const UPDATE_API_NAME = '__tmBootstrapCheckForUpdatesNow';
     const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
     const DEFAULT_SCRIPT_CACHE_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_MANIFEST = {
@@ -37,6 +38,7 @@
     const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
     let modalStylesInstalled = false;
     let approvalPromptCount = 0;
+    let manualUpdatePromise = null;
 
     function getStorage() {
         const gmApi = typeof GM !== 'undefined' ? GM : undefined;
@@ -500,6 +502,14 @@
         writeForceRefreshFlag(true);
     }
 
+    function getUpdateBridgeTarget() {
+        try {
+            return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        } catch {
+            return window;
+        }
+    }
+
     async function readSourceCache() {
         const storage = getStorage();
         const raw = await storage.get(SOURCE_CACHE_KEY, '{}');
@@ -742,9 +752,7 @@
         }
 
         GM_registerMenuCommand('TM Bootstrap: Check for updates now', () => {
-            requestForceRefresh();
-            notifyUser('Checking for updates', 'The next reload will fetch the latest manifest and matching scripts.');
-            window.location.reload();
+            void runManualUpdateCheck();
         });
 
         GM_registerMenuCommand('TM Bootstrap: Clear approved hashes', async () => {
@@ -772,6 +780,106 @@
             approveLabel: 'Close',
             cancelLabel: null
         });
+    }
+
+    async function runManualUpdateCheck() {
+        if (manualUpdatePromise) {
+            return manualUpdatePromise;
+        }
+
+        manualUpdatePromise = (async () => {
+            approvalPromptCount = 0;
+            let changesDetected = false;
+            let approvedChangesDetected = false;
+
+            try {
+                const approvedManifestHash = await getApprovedHashFor('manifest', MANIFEST_URL);
+                const remoteManifestRecord = await fetchManifestRecord(true);
+                const remoteManifestHash = normalizeHash(await ensureRecordHash(remoteManifestRecord));
+                const manifestChanged = !approvedManifestHash || remoteManifestHash !== approvedManifestHash;
+
+                if (manifestChanged) {
+                    changesDetected = true;
+                }
+
+                if (!(await ensureRecordIsTrusted(remoteManifestRecord))) {
+                    return {
+                        changesDetected,
+                        approvedChangesDetected: false,
+                        blocked: true
+                    };
+                }
+
+                if (manifestChanged) {
+                    approvedChangesDetected = true;
+                }
+
+                const manifest = parseManifestSource(remoteManifestRecord.source);
+                const cacheBustEnabled = manifest.cacheBust === true;
+                const defaultScriptCacheTtlMs = secondsToMilliseconds(
+                    manifest.scriptCacheTtlSeconds,
+                    DEFAULT_SCRIPT_CACHE_TTL_MS
+                );
+                const candidateEntries = (manifest.scripts || [])
+                    .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
+                    .filter(entry => entry?.enabled)
+                    .filter(entry => pageRulesMatchCurrentPage(entry));
+
+                for (const entry of candidateEntries) {
+                    const approvedHash = await getApprovedHashFor('script', entry.url);
+                    const remoteRecord = await fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh: true });
+                    const remoteHash = normalizeHash(await ensureRecordHash(remoteRecord));
+                    const scriptChanged = !approvedHash || remoteHash !== approvedHash;
+
+                    if (!scriptChanged) {
+                        continue;
+                    }
+
+                    changesDetected = true;
+
+                    if (await ensureRecordIsTrusted(remoteRecord)) {
+                        approvedChangesDetected = true;
+                    }
+                }
+
+                if (!changesDetected) {
+                    await showNoUpdatesModal();
+                    return {
+                        changesDetected: false,
+                        approvedChangesDetected: false,
+                        blocked: false
+                    };
+                }
+
+                if (approvedChangesDetected) {
+                    window.location.reload();
+                }
+
+                return {
+                    changesDetected,
+                    approvedChangesDetected,
+                    blocked: false
+                };
+            } catch (error) {
+                console.error('[TM bootstrap] Failed to check for updates.', error);
+                notifyUser('Update check failed', 'The loader could not check for updates. See the console for details.');
+                return {
+                    changesDetected,
+                    approvedChangesDetected,
+                    blocked: false,
+                    error
+                };
+            } finally {
+                manualUpdatePromise = null;
+            }
+        })();
+
+        return manualUpdatePromise;
+    }
+
+    function registerUpdateBridge() {
+        const target = getUpdateBridgeTarget();
+        target[UPDATE_API_NAME] = () => runManualUpdateCheck();
     }
 
     function getGrantedApis() {
@@ -1477,6 +1585,8 @@
             await showNoUpdatesModal();
         }
     }
+
+    registerUpdateBridge();
 
     init().catch(error => {
         console.error('[TM bootstrap] Unexpected loader failure', error);

@@ -36,14 +36,14 @@ This package contains:
 2. The loader fetches the manifest and only downloads scripts that match the current page according to manifest rules and userscript metadata.
 3. New or changed remote manifests and scripts only load after local approval.
 4. When possible, the approval modal includes a clickable GitHub diff/history/file review link plus an open-in-new-tab action before approval.
-5. Manual update checks either show the changed-file approval flow or a modal saying no update is available.
+5. Manual update checks run in place: they either show the changed-file approval flow or a modal saying no update is available.
 
 For efficiency, the bootstrap keeps a short local cache of fetched sources:
 
 - manifest responses are cached for about 5 minutes
 - script responses are cached for 15 minutes by default
 - setting `cacheBust: true` in the manifest switches back to always-fresh dev-style fetching
-- use `Update now` in the Jira settings panel or `TM Bootstrap: Check for updates now` in Tampermonkey to immediately check the latest manifest and matching scripts
+- use `Update now` in the Jira settings panel or `TM Bootstrap: Check for updates now` in Tampermonkey to immediately check the latest manifest and matching scripts; the page only reloads when an approved update needs to be applied
 
 Update modals stay open until you use one of their buttons, so no more accidental backdrop or Escape-key vanish acts.
 

@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.5
+// @version      5.6
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -22,6 +22,7 @@ const SP_FIELD = "customfield_10002";
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
+const LOADER_UPDATE_API_NAME = "__tmBootstrapCheckForUpdatesNow";
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -1172,8 +1173,16 @@ function requestLoaderForceRefresh(){
 }
 
 function triggerLoaderUpdateNow(){
-    requestLoaderForceRefresh();
+    const loaderUpdateApi = window[LOADER_UPDATE_API_NAME];
+
     closeSettingsPanel();
+
+    if(typeof loaderUpdateApi === "function"){
+        void loaderUpdateApi();
+        return;
+    }
+
+    requestLoaderForceRefresh();
 
     window.setTimeout(()=>{
         window.location.reload();
@@ -1412,7 +1421,7 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Use Update now to check the latest loader manifest and matching scripts immediately.</div>
+        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Update now checks for newer loader-approved files in place and reloads only when an approved update needs to be applied.</div>
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
