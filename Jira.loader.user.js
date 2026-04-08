@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      3.3
+// @version      3.6
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -23,11 +23,18 @@
     const MANIFEST_URL = 'https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/loader.manifest.json';
     const MANIFEST_EXPECTED_HASH = '';
     const TRUST_STORE_KEY = 'tm-bootstrap-approved-script-hashes-v1';
+    const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
+    const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
+    const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
+    const DEFAULT_SCRIPT_CACHE_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_MANIFEST = {
-        cacheBust: true,
+        cacheBust: false,
+        scriptCacheTtlSeconds: DEFAULT_SCRIPT_CACHE_TTL_MS / 1000,
         scripts: []
     };
     const loadedScriptUrls = new Set();
+    const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
+    let modalStylesInstalled = false;
 
     function getStorage() {
         const gmApi = typeof GM !== 'undefined' ? GM : undefined;
@@ -91,6 +98,315 @@
         console.info(`[TM bootstrap] ${title}: ${text}`);
     }
 
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function ensureModalStyles() {
+        if (modalStylesInstalled) {
+            return;
+        }
+
+        modalStylesInstalled = true;
+
+        const styles = `
+            #${MODAL_ROOT_ID} {
+                position: fixed;
+                inset: 0;
+                z-index: 2147483647;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background: rgba(9, 30, 66, 0.45);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal {
+                width: min(100%, 560px);
+                max-height: min(100%, 80vh);
+                overflow: auto;
+                border-radius: 14px;
+                border: 1px solid #dfe1e6;
+                background: #ffffff;
+                box-shadow: 0 18px 48px rgba(9, 30, 66, 0.28);
+                color: #172b4d;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__header {
+                padding: 18px 20px 12px;
+                border-bottom: 1px solid #f1f2f4;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__title {
+                margin: 0;
+                font-size: 18px;
+                font-weight: 700;
+                line-height: 1.3;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__body {
+                display: grid;
+                gap: 12px;
+                padding: 16px 20px;
+                font-size: 14px;
+                line-height: 1.5;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__body p {
+                margin: 0;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__details {
+                display: grid;
+                gap: 8px;
+                padding: 12px;
+                border-radius: 10px;
+                background: #f7f8f9;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__detail-row {
+                display: grid;
+                gap: 3px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__detail-label {
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: #5e6c84;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__detail-value {
+                word-break: break-word;
+                color: #172b4d;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__detail-value code {
+                font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                font-size: 12px;
+                background: #ffffff;
+                padding: 2px 4px;
+                border-radius: 6px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__review {
+                display: grid;
+                gap: 10px;
+                padding: 12px;
+                border-radius: 10px;
+                background: #e9f2ff;
+                border: 1px solid #cce0ff;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__review-label {
+                font-size: 12px;
+                font-weight: 700;
+                color: #0747a6;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__review-link {
+                color: #0c66e4;
+                text-decoration: underline;
+                word-break: break-word;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__actions,
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__review-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__actions {
+                justify-content: flex-end;
+                padding: 0 20px 20px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button {
+                border: 1px solid #c1c7d0;
+                border-radius: 10px;
+                background: #ffffff;
+                color: #172b4d;
+                padding: 9px 14px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button:hover {
+                background: #f7f8f9;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button:focus,
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__review-link:focus {
+                outline: 2px solid #4c9aff;
+                outline-offset: 2px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--primary {
+                border-color: #0c66e4;
+                background: #0c66e4;
+                color: #ffffff;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--primary:hover {
+                background: #0055cc;
+            }
+        `;
+
+        if (typeof GM_addStyle === 'function') {
+            GM_addStyle(styles);
+            return;
+        }
+
+        const styleTag = document.createElement('style');
+        styleTag.textContent = styles;
+        (document.head || document.documentElement).appendChild(styleTag);
+    }
+
+    function waitForModalMountNode() {
+        const existingNode = document.body || document.documentElement;
+
+        if (existingNode) {
+            return Promise.resolve(existingNode);
+        }
+
+        return new Promise(resolve => {
+            const finish = () => {
+                resolve(document.body || document.documentElement);
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', finish, { once: true });
+                return;
+            }
+
+            finish();
+        });
+    }
+
+    function renderModalDetailRow(detail) {
+        const value = detail.code
+            ? `<code>${escapeHtml(detail.value)}</code>`
+            : escapeHtml(detail.value);
+
+        return `
+            <div class="tm-bootstrap-modal__detail-row">
+                <span class="tm-bootstrap-modal__detail-label">${escapeHtml(detail.label)}</span>
+                <span class="tm-bootstrap-modal__detail-value">${value}</span>
+            </div>
+        `;
+    }
+
+    async function showDecisionModal({
+        title,
+        message,
+        details = [],
+        reviewInfo = null,
+        approveLabel = 'Approve',
+        cancelLabel = 'Cancel'
+    }) {
+        const mountNode = await waitForModalMountNode();
+
+        if (!mountNode) {
+            return window.confirm([title, '', message].filter(Boolean).join('\n'));
+        }
+
+        ensureModalStyles();
+
+        return new Promise(resolve => {
+            const previousFocus = document.activeElement;
+            const existingModal = document.getElementById(MODAL_ROOT_ID);
+
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            const overlay = document.createElement('div');
+            overlay.id = MODAL_ROOT_ID;
+            overlay.tabIndex = -1;
+            overlay.innerHTML = `
+                <div class="tm-bootstrap-modal" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ROOT_ID}-title">
+                    <div class="tm-bootstrap-modal__header">
+                        <h2 id="${MODAL_ROOT_ID}-title" class="tm-bootstrap-modal__title">${escapeHtml(title)}</h2>
+                    </div>
+                    <div class="tm-bootstrap-modal__body">
+                        <p>${escapeHtml(message)}</p>
+                        ${details.length ? `<div class="tm-bootstrap-modal__details">${details.map(renderModalDetailRow).join('')}</div>` : ''}
+                        ${reviewInfo?.url ? `
+                            <div class="tm-bootstrap-modal__review">
+                                <div class="tm-bootstrap-modal__review-label">${escapeHtml(reviewInfo.label)}</div>
+                                <a class="tm-bootstrap-modal__review-link" href="${escapeHtml(reviewInfo.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reviewInfo.url)}</a>
+                                <div class="tm-bootstrap-modal__review-actions">
+                                    <button type="button" class="tm-bootstrap-modal__button" data-tm-modal-open-review="true">Open review in new tab</button>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="tm-bootstrap-modal__actions">
+                        <button type="button" class="tm-bootstrap-modal__button" data-tm-modal-cancel="true">${escapeHtml(cancelLabel)}</button>
+                        <button type="button" class="tm-bootstrap-modal__button tm-bootstrap-modal__button--primary" data-tm-modal-approve="true">${escapeHtml(approveLabel)}</button>
+                    </div>
+                </div>
+            `;
+
+            const dialog = overlay.querySelector('.tm-bootstrap-modal');
+            const cancelButton = overlay.querySelector('[data-tm-modal-cancel]');
+            const approveButton = overlay.querySelector('[data-tm-modal-approve]');
+            const reviewButton = overlay.querySelector('[data-tm-modal-open-review]');
+
+            const cleanup = approved => {
+                overlay.remove();
+
+                if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+                    previousFocus.focus();
+                }
+
+                resolve(approved);
+            };
+
+            overlay.addEventListener('click', event => {
+                if (event.target === overlay) {
+                    cleanup(false);
+                }
+            });
+
+            dialog?.addEventListener('click', event => {
+                event.stopPropagation();
+            });
+
+            overlay.addEventListener('keydown', event => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cleanup(false);
+                    return;
+                }
+
+                if (event.key === 'Enter' && event.target !== reviewButton) {
+                    event.preventDefault();
+                    cleanup(true);
+                }
+            });
+
+            cancelButton?.addEventListener('click', () => cleanup(false));
+            approveButton?.addEventListener('click', () => cleanup(true));
+            reviewButton?.addEventListener('click', event => {
+                event.preventDefault();
+                openReviewLink(reviewInfo?.url);
+            });
+
+            mountNode.appendChild(overlay);
+            approveButton?.focus();
+        });
+    }
+
     function normalizeHash(value) {
         return String(value || '')
             .trim()
@@ -138,6 +454,118 @@
     async function clearTrustStore() {
         const storage = getStorage();
         await storage.remove(TRUST_STORE_KEY);
+    }
+
+    function readForceRefreshFlag() {
+        try {
+            return window.localStorage.getItem(FORCE_REFRESH_FLAG_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    }
+
+    function writeForceRefreshFlag(enabled) {
+        try {
+            if (enabled) {
+                window.localStorage.setItem(FORCE_REFRESH_FLAG_KEY, 'true');
+                return;
+            }
+
+            window.localStorage.removeItem(FORCE_REFRESH_FLAG_KEY);
+        } catch {}
+    }
+
+    function consumeForceRefreshFlag() {
+        const requested = readForceRefreshFlag();
+
+        if (requested) {
+            writeForceRefreshFlag(false);
+        }
+
+        return requested;
+    }
+
+    function requestForceRefresh() {
+        writeForceRefreshFlag(true);
+    }
+
+    async function readSourceCache() {
+        const storage = getStorage();
+        const raw = await storage.get(SOURCE_CACHE_KEY, '{}');
+
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    async function writeSourceCache(cache) {
+        const storage = getStorage();
+        const nextEntries = Object.entries(cache || {})
+            .filter(([, record]) => typeof record?.source === 'string')
+            .sort(([, left], [, right]) => Number(right?.fetchedAt || 0) - Number(left?.fetchedAt || 0))
+            .slice(0, 25);
+
+        await storage.set(SOURCE_CACHE_KEY, JSON.stringify(Object.fromEntries(nextEntries), null, 2));
+    }
+
+    function toFiniteNumber(value) {
+        const numericValue = Number(value);
+        return Number.isFinite(numericValue) ? numericValue : null;
+    }
+
+    function secondsToMilliseconds(value, fallbackMs = 0) {
+        const numericValue = toFiniteNumber(value);
+
+        if (numericValue == null) {
+            return fallbackMs;
+        }
+
+        return Math.max(0, Math.round(numericValue * 1000));
+    }
+
+    function getSourceCacheRecordKey(kind, url) {
+        return `${kind}:${url}`;
+    }
+
+    async function getCachedSource(kind, url, maxAgeMs, options = {}) {
+        const { allowStale = false } = options;
+        const normalizedMaxAgeMs = Math.max(0, toFiniteNumber(maxAgeMs) || 0);
+
+        if (!allowStale && normalizedMaxAgeMs <= 0) {
+            return null;
+        }
+
+        const cache = await readSourceCache();
+        const record = cache[getSourceCacheRecordKey(kind, url)];
+
+        if (!record || typeof record.source !== 'string') {
+            return null;
+        }
+
+        const fetchedAt = toFiniteNumber(record.fetchedAt) || 0;
+
+        if (!allowStale && (!fetchedAt || Date.now() - fetchedAt > normalizedMaxAgeMs)) {
+            return null;
+        }
+
+        return {
+            source: record.source,
+            sourceHash: normalizeHash(record.sourceHash),
+            fetchedAt
+        };
+    }
+
+    async function storeCachedSource(kind, url, source, sourceHash) {
+        const cache = await readSourceCache();
+        cache[getSourceCacheRecordKey(kind, url)] = {
+            source: String(source || ''),
+            sourceHash: normalizeHash(sourceHash),
+            fetchedAt: Date.now()
+        };
+        await writeSourceCache(cache);
     }
 
     function getTrustKey(record) {
@@ -196,23 +624,20 @@
         const isUpdate = Boolean(previousHash);
         const actionLabel = isUpdate ? 'updated' : 'new';
         const reviewInfo = await getReviewInfo(record, previousHash);
-
-        if (reviewInfo?.url) {
-            openReviewLink(reviewInfo.url);
-        }
-
-        const approved = window.confirm(
-            [
-                `[TM bootstrap] ${getDisplayName(record)} has a ${actionLabel} version.`,
-                '',
-                `URL: ${record.url}`,
-                reviewInfo?.url
-                    ? `${reviewInfo.label}: ${reviewInfo.url}`
-                    : 'Review the source before approving this version.',
-                '',
-                'Approve this version and allow it to load?'
-            ].filter(Boolean).join('\n')
-        );
+        const approved = await showDecisionModal({
+            title: `${getDisplayName(record)} has a ${actionLabel} version`,
+            message: 'Review the source details below, then decide whether to trust and load this version.',
+            details: [
+                {
+                    label: 'Source URL',
+                    value: record.url,
+                    code: true
+                }
+            ],
+            reviewInfo,
+            approveLabel: 'Approve and load',
+            cancelLabel: 'Block for now'
+        });
 
         if (!approved) {
             notifyUser(
@@ -247,8 +672,19 @@
             return;
         }
 
+        GM_registerMenuCommand('TM Bootstrap: Check for updates now', () => {
+            requestForceRefresh();
+            notifyUser('Checking for updates', 'Bypassing the local loader cache on the next reload.');
+            window.location.reload();
+        });
+
         GM_registerMenuCommand('TM Bootstrap: Clear approved hashes', async () => {
-            const confirmed = window.confirm('Clear all locally approved manifest and script hashes for the bootstrap loader?');
+            const confirmed = await showDecisionModal({
+                title: 'Clear approved hashes?',
+                message: 'This removes every locally approved manifest and script hash for the bootstrap loader. The next manifest or script update will ask for approval again.',
+                approveLabel: 'Clear hashes',
+                cancelLabel: 'Keep hashes'
+            });
 
             if (!confirmed) {
                 return;
@@ -333,7 +769,7 @@
         };
     }
 
-    function fetchText(url) {
+    function requestText(url) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -353,8 +789,62 @@
         });
     }
 
+    async function fetchText(url, options = {}) {
+        const {
+            cacheKind = 'script',
+            cacheKey = url,
+            cacheTtlMs = 0,
+            bypassCache = false
+        } = options;
+        const normalizedCacheTtlMs = Math.max(0, toFiniteNumber(cacheTtlMs) || 0);
+
+        if (!bypassCache && normalizedCacheTtlMs > 0) {
+            const cached = await getCachedSource(cacheKind, cacheKey, normalizedCacheTtlMs);
+
+            if (cached) {
+                return {
+                    ...cached,
+                    fromCache: true,
+                    stale: false
+                };
+            }
+        }
+
+        const stale = normalizedCacheTtlMs > 0
+            ? await getCachedSource(cacheKind, cacheKey, normalizedCacheTtlMs, { allowStale: true })
+            : null;
+
+        try {
+            const source = await requestText(url);
+            const sourceHash = await sha256Hex(source);
+
+            if (normalizedCacheTtlMs > 0) {
+                await storeCachedSource(cacheKind, cacheKey, source, sourceHash);
+            }
+
+            return {
+                source,
+                sourceHash,
+                fromCache: false,
+                stale: false
+            };
+        } catch (error) {
+            if (stale) {
+                console.warn(`[TM bootstrap] Using stale cached ${cacheKind} for ${cacheKey} because the network request failed.`, error);
+
+                return {
+                    ...stale,
+                    fromCache: true,
+                    stale: true
+                };
+            }
+
+            throw error;
+        }
+    }
+
     async function fetchJson(url) {
-        return JSON.parse(await fetchText(url));
+        return JSON.parse(await requestText(url));
     }
 
     async function fetchGitHubCommitHistory(reference) {
@@ -370,7 +860,7 @@
 
     async function fetchCommitHashForPath(reference, commitSha) {
         const rawUrl = `https://raw.githubusercontent.com/${reference.owner}/${reference.repo}/${commitSha}/${reference.path}`;
-        const source = await fetchText(rawUrl);
+        const source = await requestText(rawUrl);
         return sha256Hex(source);
     }
 
@@ -463,41 +953,96 @@
         console.info(`[TM bootstrap] Review URL: ${url}`);
     }
 
-    async function loadManifest() {
+    async function loadManifest(options = {}) {
+        const { forceRefresh = false } = options;
+
         try {
-            const raw = await fetchText(appendCacheBust(MANIFEST_URL, true));
-            const manifestRecord = {
+            let manifestResponse = await fetchText(appendCacheBust(MANIFEST_URL, forceRefresh), {
+                cacheKind: 'manifest',
+                cacheKey: MANIFEST_URL,
+                cacheTtlMs: MANIFEST_CACHE_TTL_MS,
+                bypassCache: forceRefresh
+            });
+            let manifestRecord = {
                 kind: 'manifest',
                 displayName: 'loader.manifest.json',
                 url: MANIFEST_URL,
-                source: raw,
-                sourceHash: '',
+                source: manifestResponse.source,
+                sourceHash: manifestResponse.sourceHash,
                 expectedHash: MANIFEST_EXPECTED_HASH
             };
 
-            if (!(await ensureRecordIsTrusted(manifestRecord))) {
-                console.info('[TM bootstrap] Manifest was not approved, so no local scripts were loaded.');
-                return DEFAULT_MANIFEST;
+            try {
+                if (!(await ensureRecordIsTrusted(manifestRecord))) {
+                    console.info('[TM bootstrap] Manifest was not approved, so no local scripts were loaded.');
+                    return DEFAULT_MANIFEST;
+                }
+            } catch (error) {
+                if (!manifestResponse.fromCache) {
+                    throw error;
+                }
+
+                manifestResponse = await fetchText(appendCacheBust(MANIFEST_URL, true), {
+                    cacheKind: 'manifest',
+                    cacheKey: MANIFEST_URL,
+                    cacheTtlMs: MANIFEST_CACHE_TTL_MS,
+                    bypassCache: true
+                });
+                manifestRecord = {
+                    kind: 'manifest',
+                    displayName: 'loader.manifest.json',
+                    url: MANIFEST_URL,
+                    source: manifestResponse.source,
+                    sourceHash: manifestResponse.sourceHash,
+                    expectedHash: MANIFEST_EXPECTED_HASH
+                };
+
+                if (!(await ensureRecordIsTrusted(manifestRecord))) {
+                    console.info('[TM bootstrap] Manifest was not approved, so no local scripts were loaded.');
+                    return DEFAULT_MANIFEST;
+                }
             }
 
-            const parsed = JSON.parse(raw);
+            const parsed = JSON.parse(manifestRecord.source);
 
             if (!Array.isArray(parsed?.scripts)) {
                 throw new Error('Manifest is missing a scripts array');
             }
 
-            return parsed;
+            return {
+                ...DEFAULT_MANIFEST,
+                ...parsed
+            };
         } catch (error) {
             console.warn('[TM bootstrap] Failed to load manifest; no local scripts will be loaded until loader.manifest.json is reachable again.', error);
             return DEFAULT_MANIFEST;
         }
     }
 
+    function normalizePatternList(value) {
+        if (Array.isArray(value)) {
+            return value
+                .map(entry => String(entry || '').trim())
+                .filter(Boolean);
+        }
+
+        if (typeof value === 'string') {
+            const normalizedValue = value.trim();
+            return normalizedValue ? [normalizedValue] : [];
+        }
+
+        return [];
+    }
+
     function normalizeManifestEntry(entry, manifestUrl) {
         if (typeof entry === 'string') {
             return {
                 enabled: true,
-                url: new URL(entry, manifestUrl).toString()
+                url: new URL(entry, manifestUrl).toString(),
+                match: [],
+                include: [],
+                exclude: [],
+                'exclude-match': []
             };
         }
 
@@ -507,7 +1052,12 @@
                 url: new URL(entry.url, manifestUrl).toString(),
                 hash: typeof entry.hash === 'string' ? entry.hash : undefined,
                 expectedHash: typeof entry.expectedHash === 'string' ? entry.expectedHash : undefined,
-                sha256: typeof entry.sha256 === 'string' ? entry.sha256 : undefined
+                sha256: typeof entry.sha256 === 'string' ? entry.sha256 : undefined,
+                cacheTtlSeconds: toFiniteNumber(entry.cacheTtlSeconds),
+                match: normalizePatternList(entry.match),
+                include: normalizePatternList(entry.include),
+                exclude: normalizePatternList(entry.exclude),
+                'exclude-match': normalizePatternList(entry['exclude-match'] ?? entry.excludeMatch)
             };
         }
 
@@ -562,26 +1112,40 @@
         return wildcardToRegExp(pattern).test(href);
     }
 
-    function metadataMatchesCurrentPage(metadata) {
-        const hasMatchRules = metadata.match.length > 0 || metadata.include.length > 0;
+    function pageRulesMatchCurrentPage(source) {
+        const rules = {
+            match: normalizePatternList(source?.match),
+            include: normalizePatternList(source?.include),
+            exclude: normalizePatternList(source?.exclude),
+            'exclude-match': normalizePatternList(source?.['exclude-match'] ?? source?.excludeMatch)
+        };
+        const hasMatchRules = rules.match.length > 0 || rules.include.length > 0;
 
-        if (metadata['exclude-match'].some(pattern => matchesPattern(pattern))) {
+        if (rules['exclude-match'].some(pattern => matchesPattern(pattern))) {
             return false;
         }
 
-        if (metadata.exclude.some(pattern => matchesPattern(pattern))) {
+        if (rules.exclude.some(pattern => matchesPattern(pattern))) {
             return false;
         }
 
-        if (metadata.match.length > 0) {
-            return metadata.match.some(pattern => matchesPattern(pattern));
+        if (rules.match.length > 0) {
+            return rules.match.some(pattern => matchesPattern(pattern));
         }
 
-        if (metadata.include.length > 0) {
-            return metadata.include.some(pattern => matchesPattern(pattern));
+        if (rules.include.length > 0) {
+            return rules.include.some(pattern => matchesPattern(pattern));
         }
 
         return !hasMatchRules || true;
+    }
+
+    function metadataMatchesCurrentPage(metadata) {
+        return pageRulesMatchCurrentPage(metadata);
+    }
+
+    function getScriptCacheTtlMs(entry, defaultMs) {
+        return secondsToMilliseconds(entry?.cacheTtlSeconds, defaultMs);
     }
 
     function waitForRunAt(runAt) {
@@ -655,36 +1219,67 @@
         console.info(`[TM bootstrap] Loaded ${record.metadata.name || record.url}`);
     }
 
-    async function loadScriptRecord(entry, cacheBustEnabled) {
+    async function loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs) {
         const requestUrl = appendCacheBust(entry.url, cacheBustEnabled);
-        const source = await fetchText(requestUrl);
-        const metadata = parseUserscriptMetadata(source);
+        const cacheTtlMs = cacheBustEnabled
+            ? 0
+            : getScriptCacheTtlMs(entry, defaultScriptCacheTtlMs);
+        let result = await fetchText(requestUrl, {
+            cacheKind: 'script',
+            cacheKey: entry.url,
+            cacheTtlMs,
+            bypassCache: cacheBustEnabled
+        });
+        const expectedHash = getExpectedHash(entry);
+
+        if (expectedHash && result.fromCache && normalizeHash(result.sourceHash) !== expectedHash) {
+            result = await fetchText(requestUrl, {
+                cacheKind: 'script',
+                cacheKey: entry.url,
+                cacheTtlMs,
+                bypassCache: true
+            });
+        }
+
+        const metadata = parseUserscriptMetadata(result.source);
 
         return {
             entry,
             url: entry.url,
-            source,
+            source: result.source,
             metadata,
-            sourceHash: ''
+            sourceHash: result.sourceHash
         };
     }
 
     async function init() {
         installManagementMenu();
 
-        const manifest = await loadManifest();
-        const cacheBustEnabled = manifest.cacheBust !== false;
+        const forceRefresh = consumeForceRefreshFlag();
+        const manifest = await loadManifest({ forceRefresh });
+        const cacheBustEnabled = manifest.cacheBust === true || forceRefresh;
+        const defaultScriptCacheTtlMs = secondsToMilliseconds(
+            manifest.scriptCacheTtlSeconds,
+            DEFAULT_SCRIPT_CACHE_TTL_MS
+        );
         const scriptEntries = (manifest.scripts || [])
             .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
             .filter(entry => entry?.enabled);
+
+        const candidateEntries = scriptEntries.filter(entry => pageRulesMatchCurrentPage(entry));
 
         if (!scriptEntries.length) {
             console.info('[TM bootstrap] Manifest loaded but contains no enabled scripts.');
             return;
         }
 
+        if (!candidateEntries.length) {
+            console.info(`[TM bootstrap] No manifest entries matched ${location.href}`);
+            return;
+        }
+
         const records = await Promise.allSettled(
-            scriptEntries.map(entry => loadScriptRecord(entry, cacheBustEnabled))
+            candidateEntries.map(entry => loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs))
         );
 
         const matchingRecords = records

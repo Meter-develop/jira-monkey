@@ -1,6 +1,18 @@
 {
-  "cacheBust": true,
+  "cacheBust": false,
+  "scriptCacheTtlSeconds": 900,
   "scripts": [
-    "Jira.js"
+    {
+      "url": "Jira.js",
+      "match": [
+        "*://*/secure/*",
+        "*://*/browse/*",
+        "*://*/projects/*",
+        "*://*/issues/*",
+        "*://*/jira/*",
+        "*://*/servicedesk/*",
+        "*://*/plugins/*"
+      ]
+    }
   ]
 }

@@ -33,9 +33,16 @@ This package contains:
 ## How sharing works
 
 1. The user manually installs `Jira.loader.user.js` in Tampermonkey.
-2. The loader fetches the manifest and matching scripts from the GitHub repository via raw file URLs.
+2. The loader fetches the manifest and only downloads scripts that match the current page according to manifest rules and userscript metadata.
 3. New or changed remote manifests and scripts only load after local approval.
-4. When possible, the approval prompt opens a GitHub review page so the user can inspect the file diff/history before approving.
+4. When possible, the approval modal includes a clickable GitHub diff/history/file review link plus an open-in-new-tab action before approval.
+
+For efficiency, the bootstrap keeps a short local cache of fetched sources:
+
+- manifest responses are cached for about 5 minutes
+- script responses are cached for 15 minutes by default
+- setting `cacheBust: true` in the manifest switches back to always-fresh dev-style fetching
+- use `Update now` in the Jira settings panel or `TM Bootstrap: Check for updates now` in Tampermonkey to bypass the cache once
 
 The manually installed loader is the trusted anchor.
 
@@ -61,5 +68,7 @@ On first use, the script prompts the user for their organization email domain an
 ## Manifest note
 
 `loader.manifest.json` in this folder is the active shareable manifest and only loads `Jira.js`.
+
+The shared manifest now also includes Jira page-match rules so the loader can skip downloading `Jira.js` on unrelated sites.
 
 The loader now also hashes and locally approves the manifest itself before trusting it.

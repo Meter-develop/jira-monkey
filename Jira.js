@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.2
+// @version      5.3
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -21,6 +21,7 @@
 const SP_FIELD = "customfield_10002";
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
+const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -360,31 +361,58 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 
 .tm-settings-actions{
     display:flex;
-    justify-content:flex-end;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
     margin-top:12px;
     padding-top:10px;
     border-top:1px solid #dfe1e6;
 }
 
-.tm-settings-reset-button{
+.tm-settings-action-group{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+}
+
+.tm-settings-action-button{
     padding:5px 10px;
     border:1px solid #dfe1e6;
     border-radius:6px;
     background:#ffffff;
-    color:#c9372c;
     cursor:pointer;
     font-size:12px;
     font-weight:600;
 }
 
+.tm-settings-action-button:hover{
+    background:#f7f8f9;
+}
+
+.tm-settings-action-button:focus{
+    outline:2px solid #4c9aff;
+    outline-offset:2px;
+}
+
+.tm-settings-update-button{
+    color:#0747a6;
+    border-color:#cce0ff;
+    background:#e9f2ff;
+}
+
+.tm-settings-update-button:hover{
+    background:#dbeafe;
+    border-color:#85b8ff;
+}
+
+.tm-settings-reset-button{
+    color:#c9372c;
+}
+
 .tm-settings-reset-button:hover{
     background:#fff0f0;
     border-color:#f5c2c0;
-}
-
-.tm-settings-reset-button:focus{
-    outline:2px solid #4c9aff;
-    outline-offset:2px;
 }
 
 .tm-settings-reload-chip{
@@ -1135,6 +1163,29 @@ function clearStoredSettings(){
     }catch{}
 }
 
+function requestLoaderForceRefresh(){
+
+    try{
+        window.localStorage.setItem(LOADER_FORCE_REFRESH_FLAG_KEY, "true");
+    }catch{}
+}
+
+function triggerLoaderUpdateNow(){
+
+    const confirmed = window.confirm(
+        "Check for updated Jira scripts now? This bypasses the loader cache once and reloads the page."
+    );
+
+    if(!confirmed) return;
+
+    requestLoaderForceRefresh();
+    closeSettingsPanel();
+
+    window.setTimeout(()=>{
+        window.location.reload();
+    }, 80);
+}
+
 function resetStoredSettings(){
 
     const confirmed = window.confirm(
@@ -1367,9 +1418,14 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live.</div>
+        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Use Update now to bypass the loader cache once.</div>
         <div class="tm-settings-actions">
-            <button type="button" class="tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
+            <div class="tm-settings-action-group">
+                <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
+            </div>
+            <div class="tm-settings-action-group">
+                <button type="button" class="tm-settings-action-button tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
+            </div>
         </div>
     `;
 
@@ -1399,6 +1455,12 @@ function renderSettingsPanel(panel){
         event.preventDefault();
         event.stopPropagation();
         resetStoredSettings();
+    });
+
+    panel.querySelector("[data-tm-settings-update]")?.addEventListener("click", event=>{
+        event.preventDefault();
+        event.stopPropagation();
+        triggerLoaderUpdateNow();
     });
 }
 
