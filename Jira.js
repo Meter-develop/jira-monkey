@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.7
+// @version      5.8
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -19,6 +19,7 @@
 /* CONFIG */
 
 const SP_FIELD = "customfield_10002";
+const REPOSITORY_URL = "https://github.com/Meter-develop/jira-monkey";
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
@@ -380,13 +381,18 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 }
 
 .tm-settings-action-button{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
     padding:5px 10px;
     border:1px solid #dfe1e6;
     border-radius:6px;
     background:#ffffff;
+    color:#172b4d;
     cursor:pointer;
     font-size:12px;
     font-weight:600;
+    text-decoration:none;
 }
 
 .tm-settings-action-button:hover{
@@ -416,6 +422,17 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 .tm-settings-reset-button:hover{
     background:#fff0f0;
     border-color:#f5c2c0;
+}
+
+.tm-settings-repo-button{
+    color:#24292f;
+    border-color:#d0d7de;
+    background:#f6f8fa;
+}
+
+.tm-settings-repo-button:hover{
+    background:#eef2f6;
+    border-color:#afb8c1;
 }
 
 .tm-settings-reload-chip{
@@ -1431,6 +1448,7 @@ function renderSettingsPanel(panel){
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
+                <a class="tm-settings-action-button tm-settings-repo-button" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" data-tm-settings-repo="true">GitHub repo</a>
             </div>
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
