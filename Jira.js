@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.3
+// @version      5.5
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -265,6 +265,7 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 }
 
 .tm-settings-button{
+    position:relative;
     display:inline-flex;
     align-items:center;
     justify-content:center;
@@ -1171,13 +1172,6 @@ function requestLoaderForceRefresh(){
 }
 
 function triggerLoaderUpdateNow(){
-
-    const confirmed = window.confirm(
-        "Check for updated Jira scripts now? This bypasses the loader cache once and reloads the page."
-    );
-
-    if(!confirmed) return;
-
     requestLoaderForceRefresh();
     closeSettingsPanel();
 
@@ -1418,7 +1412,7 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Use Update now to bypass the loader cache once.</div>
+        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Use Update now to check the latest loader manifest and matching scripts immediately.</div>
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
@@ -1495,6 +1489,7 @@ function installSettingsUiEvents(){
             positionSettingsPanel();
         }
     }, true);
+
 }
 
 function removeStaleSettingsSlots(container){

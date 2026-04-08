@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      3.6
+// @version      3.9
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -23,6 +23,7 @@
     const MANIFEST_URL = 'https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/loader.manifest.json';
     const MANIFEST_EXPECTED_HASH = '';
     const TRUST_STORE_KEY = 'tm-bootstrap-approved-script-hashes-v1';
+    const APPROVED_SOURCE_STORE_KEY = 'tm-bootstrap-approved-sources-v1';
     const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
     const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -35,6 +36,7 @@
     const loadedScriptUrls = new Set();
     const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
     let modalStylesInstalled = false;
+    let approvalPromptCount = 0;
 
     function getStorage() {
         const gmApi = typeof GM !== 'undefined' ? GM : undefined;
@@ -324,6 +326,7 @@
         return new Promise(resolve => {
             const previousFocus = document.activeElement;
             const existingModal = document.getElementById(MODAL_ROOT_ID);
+            const hasCancelButton = cancelLabel != null;
 
             if (existingModal) {
                 existingModal.remove();
@@ -351,7 +354,7 @@
                         ` : ''}
                     </div>
                     <div class="tm-bootstrap-modal__actions">
-                        <button type="button" class="tm-bootstrap-modal__button" data-tm-modal-cancel="true">${escapeHtml(cancelLabel)}</button>
+                        ${hasCancelButton ? `<button type="button" class="tm-bootstrap-modal__button" data-tm-modal-cancel="true">${escapeHtml(cancelLabel)}</button>` : ''}
                         <button type="button" class="tm-bootstrap-modal__button tm-bootstrap-modal__button--primary" data-tm-modal-approve="true">${escapeHtml(approveLabel)}</button>
                     </div>
                 </div>
@@ -372,27 +375,8 @@
                 resolve(approved);
             };
 
-            overlay.addEventListener('click', event => {
-                if (event.target === overlay) {
-                    cleanup(false);
-                }
-            });
-
             dialog?.addEventListener('click', event => {
                 event.stopPropagation();
-            });
-
-            overlay.addEventListener('keydown', event => {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    cleanup(false);
-                    return;
-                }
-
-                if (event.key === 'Enter' && event.target !== reviewButton) {
-                    event.preventDefault();
-                    cleanup(true);
-                }
             });
 
             cancelButton?.addEventListener('click', () => cleanup(false));
@@ -403,7 +387,7 @@
             });
 
             mountNode.appendChild(overlay);
-            approveButton?.focus();
+            (hasCancelButton ? cancelButton : approveButton)?.focus();
         });
     }
 
@@ -454,6 +438,33 @@
     async function clearTrustStore() {
         const storage = getStorage();
         await storage.remove(TRUST_STORE_KEY);
+    }
+
+    async function clearApprovedSourceStore() {
+        const storage = getStorage();
+        await storage.remove(APPROVED_SOURCE_STORE_KEY);
+    }
+
+    async function readApprovedSourceStore() {
+        const storage = getStorage();
+        const raw = await storage.get(APPROVED_SOURCE_STORE_KEY, '{}');
+
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    async function writeApprovedSourceStore(store) {
+        const storage = getStorage();
+        const nextEntries = Object.entries(store || {})
+            .filter(([, record]) => typeof record?.source === 'string')
+            .sort(([, left], [, right]) => Number(right?.storedAt || 0) - Number(left?.storedAt || 0))
+            .slice(0, 25);
+
+        await storage.set(APPROVED_SOURCE_STORE_KEY, JSON.stringify(Object.fromEntries(nextEntries), null, 2));
     }
 
     function readForceRefreshFlag() {
@@ -568,10 +579,65 @@
         await writeSourceCache(cache);
     }
 
+    async function getApprovedSourceRecord(kind, url, approvedHash = '') {
+        const normalizedApprovedHash = normalizeHash(approvedHash);
+        const approvedStore = await readApprovedSourceStore();
+        const approvedRecord = approvedStore[getSourceCacheRecordKey(kind, url)];
+
+        if (
+            approvedRecord
+            && typeof approvedRecord.source === 'string'
+            && (!normalizedApprovedHash || normalizeHash(approvedRecord.sourceHash) === normalizedApprovedHash)
+        ) {
+            return {
+                source: approvedRecord.source,
+                sourceHash: normalizeHash(approvedRecord.sourceHash)
+            };
+        }
+
+        if (!normalizedApprovedHash) {
+            return null;
+        }
+
+        const cachedRecord = await getCachedSource(kind, url, Number.MAX_SAFE_INTEGER, { allowStale: true });
+
+        if (cachedRecord && normalizeHash(cachedRecord.sourceHash) === normalizedApprovedHash) {
+            const nextApprovedStore = await readApprovedSourceStore();
+            nextApprovedStore[getSourceCacheRecordKey(kind, url)] = {
+                source: cachedRecord.source,
+                sourceHash: normalizeHash(cachedRecord.sourceHash),
+                storedAt: Date.now()
+            };
+            await writeApprovedSourceStore(nextApprovedStore);
+
+            return {
+                source: cachedRecord.source,
+                sourceHash: normalizeHash(cachedRecord.sourceHash)
+            };
+        }
+
+        return null;
+    }
+
+    async function storeApprovedSourceRecord(record) {
+        const approvedStore = await readApprovedSourceStore();
+        approvedStore[getSourceCacheRecordKey(record.kind || 'script', record.url)] = {
+            source: String(record.source || ''),
+            sourceHash: normalizeHash(await ensureRecordHash(record)),
+            storedAt: Date.now()
+        };
+        await writeApprovedSourceStore(approvedStore);
+    }
+
     function getTrustKey(record) {
         return record.kind === 'manifest'
             ? `manifest:${record.url}`
             : record.url;
+    }
+
+    async function getApprovedHashFor(kind, url) {
+        const trustStore = await readTrustStore();
+        return normalizeHash(trustStore[getTrustKey({ kind, url })]);
     }
 
     function getDisplayName(record) {
@@ -610,6 +676,7 @@
         const trustStore = await readTrustStore();
         trustStore[getTrustKey(record)] = sourceHash;
         await writeTrustStore(trustStore);
+        await storeApprovedSourceRecord(record);
     }
 
     async function isApproved(record) {
@@ -623,6 +690,7 @@
         const previousHash = normalizeHash(trustStore[getTrustKey(record)]);
         const isUpdate = Boolean(previousHash);
         const actionLabel = isUpdate ? 'updated' : 'new';
+        approvalPromptCount += 1;
         const reviewInfo = await getReviewInfo(record, previousHash);
         const approved = await showDecisionModal({
             title: `${getDisplayName(record)} has a ${actionLabel} version`,
@@ -661,6 +729,7 @@
         await verifyExpectedHash(record);
 
         if (await isApproved(record)) {
+            await storeApprovedSourceRecord(record);
             return true;
         }
 
@@ -674,7 +743,7 @@
 
         GM_registerMenuCommand('TM Bootstrap: Check for updates now', () => {
             requestForceRefresh();
-            notifyUser('Checking for updates', 'Bypassing the local loader cache on the next reload.');
+            notifyUser('Checking for updates', 'The next reload will fetch the latest manifest and matching scripts.');
             window.location.reload();
         });
 
@@ -691,7 +760,17 @@
             }
 
             await clearTrustStore();
+            await clearApprovedSourceStore();
             notifyUser('Approved hashes cleared', 'The next manifest or script load will require approval again.');
+        });
+    }
+
+    async function showNoUpdatesModal() {
+        await showDecisionModal({
+            title: 'No updates available',
+            message: 'The loader checked the latest manifest and matching scripts for this page, and everything is already up to date.',
+            approveLabel: 'Close',
+            cancelLabel: null
         });
     }
 
@@ -953,24 +1032,43 @@
         console.info(`[TM bootstrap] Review URL: ${url}`);
     }
 
+    function parseManifestSource(source) {
+        const parsed = JSON.parse(source);
+
+        if (!Array.isArray(parsed?.scripts)) {
+            throw new Error('Manifest is missing a scripts array');
+        }
+
+        return {
+            ...DEFAULT_MANIFEST,
+            ...parsed
+        };
+    }
+
+    async function fetchManifestRecord(forceRefresh = false) {
+        const response = await fetchText(appendCacheBust(MANIFEST_URL, forceRefresh), {
+            cacheKind: 'manifest',
+            cacheKey: MANIFEST_URL,
+            cacheTtlMs: MANIFEST_CACHE_TTL_MS,
+            bypassCache: forceRefresh
+        });
+
+        return {
+            kind: 'manifest',
+            displayName: 'loader.manifest.json',
+            url: MANIFEST_URL,
+            source: response.source,
+            sourceHash: response.sourceHash,
+            expectedHash: MANIFEST_EXPECTED_HASH,
+            fromCache: response.fromCache
+        };
+    }
+
     async function loadManifest(options = {}) {
         const { forceRefresh = false } = options;
 
         try {
-            let manifestResponse = await fetchText(appendCacheBust(MANIFEST_URL, forceRefresh), {
-                cacheKind: 'manifest',
-                cacheKey: MANIFEST_URL,
-                cacheTtlMs: MANIFEST_CACHE_TTL_MS,
-                bypassCache: forceRefresh
-            });
-            let manifestRecord = {
-                kind: 'manifest',
-                displayName: 'loader.manifest.json',
-                url: MANIFEST_URL,
-                source: manifestResponse.source,
-                sourceHash: manifestResponse.sourceHash,
-                expectedHash: MANIFEST_EXPECTED_HASH
-            };
+            let manifestRecord = await fetchManifestRecord(forceRefresh);
 
             try {
                 if (!(await ensureRecordIsTrusted(manifestRecord))) {
@@ -978,24 +1076,11 @@
                     return DEFAULT_MANIFEST;
                 }
             } catch (error) {
-                if (!manifestResponse.fromCache) {
+                if (!manifestRecord.fromCache) {
                     throw error;
                 }
 
-                manifestResponse = await fetchText(appendCacheBust(MANIFEST_URL, true), {
-                    cacheKind: 'manifest',
-                    cacheKey: MANIFEST_URL,
-                    cacheTtlMs: MANIFEST_CACHE_TTL_MS,
-                    bypassCache: true
-                });
-                manifestRecord = {
-                    kind: 'manifest',
-                    displayName: 'loader.manifest.json',
-                    url: MANIFEST_URL,
-                    source: manifestResponse.source,
-                    sourceHash: manifestResponse.sourceHash,
-                    expectedHash: MANIFEST_EXPECTED_HASH
-                };
+                manifestRecord = await fetchManifestRecord(true);
 
                 if (!(await ensureRecordIsTrusted(manifestRecord))) {
                     console.info('[TM bootstrap] Manifest was not approved, so no local scripts were loaded.');
@@ -1003,20 +1088,30 @@
                 }
             }
 
-            const parsed = JSON.parse(manifestRecord.source);
-
-            if (!Array.isArray(parsed?.scripts)) {
-                throw new Error('Manifest is missing a scripts array');
-            }
-
-            return {
-                ...DEFAULT_MANIFEST,
-                ...parsed
-            };
+            return parseManifestSource(manifestRecord.source);
         } catch (error) {
             console.warn('[TM bootstrap] Failed to load manifest; no local scripts will be loaded until loader.manifest.json is reachable again.', error);
             return DEFAULT_MANIFEST;
         }
+    }
+
+    async function getExecutableManifest(forceRefresh = false) {
+        if (forceRefresh) {
+            return loadManifest({ forceRefresh: true });
+        }
+
+        try {
+            const approvedHash = await getApprovedHashFor('manifest', MANIFEST_URL);
+            const approvedManifest = await getApprovedSourceRecord('manifest', MANIFEST_URL, approvedHash);
+
+            if (approvedManifest?.source) {
+                return parseManifestSource(approvedManifest.source);
+            }
+        } catch (error) {
+            console.warn('[TM bootstrap] Failed to use the approved manifest copy, falling back to the network.', error);
+        }
+
+        return loadManifest({ forceRefresh: false });
     }
 
     function normalizePatternList(value) {
@@ -1148,6 +1243,40 @@
         return secondsToMilliseconds(entry?.cacheTtlSeconds, defaultMs);
     }
 
+    async function fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, options = {}) {
+        const { forceRefresh = false } = options;
+        const shouldBypassCache = cacheBustEnabled || forceRefresh;
+        const requestUrl = appendCacheBust(entry.url, shouldBypassCache);
+        const cacheTtlMs = shouldBypassCache
+            ? 0
+            : getScriptCacheTtlMs(entry, defaultScriptCacheTtlMs);
+        let result = await fetchText(requestUrl, {
+            cacheKind: 'script',
+            cacheKey: entry.url,
+            cacheTtlMs,
+            bypassCache: shouldBypassCache
+        });
+        const expectedHash = getExpectedHash(entry);
+
+        if (expectedHash && result.fromCache && normalizeHash(result.sourceHash) !== expectedHash) {
+            result = await fetchText(appendCacheBust(entry.url, true), {
+                cacheKind: 'script',
+                cacheKey: entry.url,
+                cacheTtlMs,
+                bypassCache: true
+            });
+        }
+
+        return {
+            kind: 'script',
+            entry,
+            url: entry.url,
+            source: result.source,
+            metadata: parseUserscriptMetadata(result.source),
+            sourceHash: result.sourceHash
+        };
+    }
+
     function waitForRunAt(runAt) {
         if (runAt === 'document-start') {
             return Promise.resolve();
@@ -1219,44 +1348,34 @@
         console.info(`[TM bootstrap] Loaded ${record.metadata.name || record.url}`);
     }
 
-    async function loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs) {
-        const requestUrl = appendCacheBust(entry.url, cacheBustEnabled);
-        const cacheTtlMs = cacheBustEnabled
-            ? 0
-            : getScriptCacheTtlMs(entry, defaultScriptCacheTtlMs);
-        let result = await fetchText(requestUrl, {
-            cacheKind: 'script',
-            cacheKey: entry.url,
-            cacheTtlMs,
-            bypassCache: cacheBustEnabled
-        });
-        const expectedHash = getExpectedHash(entry);
+    async function loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, options = {}) {
+        const { forceRefresh = false } = options;
 
-        if (expectedHash && result.fromCache && normalizeHash(result.sourceHash) !== expectedHash) {
-            result = await fetchText(requestUrl, {
-                cacheKind: 'script',
-                cacheKey: entry.url,
-                cacheTtlMs,
-                bypassCache: true
-            });
+        if (!forceRefresh) {
+            const approvedHash = await getApprovedHashFor('script', entry.url);
+            const approvedScript = await getApprovedSourceRecord('script', entry.url, approvedHash);
+
+            if (approvedScript?.source) {
+                return {
+                    kind: 'script',
+                    entry,
+                    url: entry.url,
+                    source: approvedScript.source,
+                    metadata: parseUserscriptMetadata(approvedScript.source),
+                    sourceHash: approvedScript.sourceHash
+                };
+            }
         }
 
-        const metadata = parseUserscriptMetadata(result.source);
-
-        return {
-            entry,
-            url: entry.url,
-            source: result.source,
-            metadata,
-            sourceHash: result.sourceHash
-        };
+        return fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh });
     }
 
     async function init() {
         installManagementMenu();
+        approvalPromptCount = 0;
 
         const forceRefresh = consumeForceRefreshFlag();
-        const manifest = await loadManifest({ forceRefresh });
+        const manifest = await getExecutableManifest(forceRefresh);
         const cacheBustEnabled = manifest.cacheBust === true || forceRefresh;
         const defaultScriptCacheTtlMs = secondsToMilliseconds(
             manifest.scriptCacheTtlSeconds,
@@ -1270,16 +1389,26 @@
 
         if (!scriptEntries.length) {
             console.info('[TM bootstrap] Manifest loaded but contains no enabled scripts.');
+
+            if (forceRefresh) {
+                await showNoUpdatesModal();
+            }
+
             return;
         }
 
         if (!candidateEntries.length) {
             console.info(`[TM bootstrap] No manifest entries matched ${location.href}`);
+
+            if (forceRefresh) {
+                await showNoUpdatesModal();
+            }
+
             return;
         }
 
         const records = await Promise.allSettled(
-            candidateEntries.map(entry => loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs))
+            candidateEntries.map(entry => loadScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh }))
         );
 
         const matchingRecords = records
@@ -1295,6 +1424,11 @@
 
         if (!matchingRecords.length) {
             console.info(`[TM bootstrap] No configured local scripts matched ${location.href}`);
+
+            if (forceRefresh) {
+                await showNoUpdatesModal();
+            }
+
             return;
         }
 
@@ -1320,6 +1454,11 @@
 
         if (!approvedRecords.length) {
             console.info('[TM bootstrap] No matching local scripts were approved for execution.');
+
+            if (forceRefresh && approvalPromptCount === 0) {
+                await showNoUpdatesModal();
+            }
+
             return;
         }
 
@@ -1333,6 +1472,10 @@
                 );
             }
         });
+
+        if (forceRefresh && approvalPromptCount === 0) {
+            await showNoUpdatesModal();
+        }
     }
 
     init().catch(error => {
