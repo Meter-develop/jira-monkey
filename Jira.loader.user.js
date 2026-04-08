@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      3.2
-// @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local SHA-256 hash approval.
+// @version      3.3
+// @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -10,8 +10,10 @@
 // @grant        GM_setValue
 // @grant        GM_deleteValue
 // @grant        GM_notification
+// @grant        GM_openInTab
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
+// @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // ==/UserScript==
 
@@ -189,23 +191,24 @@
     }
 
     async function promptForApproval(record) {
-        const sourceHash = await ensureRecordHash(record);
         const trustStore = await readTrustStore();
         const previousHash = normalizeHash(trustStore[getTrustKey(record)]);
-        const expectedHash = normalizeHash(record.expectedHash || getExpectedHash(record.entry));
         const isUpdate = Boolean(previousHash);
         const actionLabel = isUpdate ? 'updated' : 'new';
-        const manifestNote = expectedHash
-            ? `\nManifest hash: ${formatHashPreview(expectedHash)}`
-            : '';
+        const reviewInfo = await getReviewInfo(record, previousHash);
+
+        if (reviewInfo?.url) {
+            openReviewLink(reviewInfo.url);
+        }
+
         const approved = window.confirm(
             [
-                `[TM bootstrap] ${getDisplayName(record)} has a ${actionLabel} hash.`,
+                `[TM bootstrap] ${getDisplayName(record)} has a ${actionLabel} version.`,
                 '',
                 `URL: ${record.url}`,
-                `Previous approved hash: ${formatHashPreview(previousHash)}`,
-                `Current hash: ${formatHashPreview(sourceHash)}`,
-                `${manifestNote}`,
+                reviewInfo?.url
+                    ? `${reviewInfo.label}: ${reviewInfo.url}`
+                    : 'Review the source before approving this version.',
                 '',
                 'Approve this version and allow it to load?'
             ].filter(Boolean).join('\n')
@@ -286,6 +289,50 @@
         return parsed.toString();
     }
 
+    function parseGitHubRawReference(url) {
+        try {
+            const parsed = new URL(url, location.href);
+
+            if (parsed.hostname !== 'raw.githubusercontent.com') {
+                return null;
+            }
+
+            const parts = parsed.pathname.replace(/^\/+/, '').split('/');
+
+            if (parts.length < 4) {
+                return null;
+            }
+
+            const [owner, repo, branch, ...pathParts] = parts;
+            const path = pathParts.join('/');
+
+            if (!owner || !repo || !branch || !path) {
+                return null;
+            }
+
+            return {
+                owner,
+                repo,
+                branch,
+                path
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    function buildGitHubReviewUrls(reference) {
+        const repoBase = `https://github.com/${reference.owner}/${reference.repo}`;
+
+        return {
+            fileUrl: `${repoBase}/blob/${reference.branch}/${reference.path}`,
+            historyUrl: `${repoBase}/commits/${reference.branch}/${reference.path}`,
+            compareUrl(baseSha, headSha) {
+                return `${repoBase}/compare/${baseSha}...${headSha}`;
+            }
+        };
+    }
+
     function fetchText(url) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -304,6 +351,116 @@
                 }
             });
         });
+    }
+
+    async function fetchJson(url) {
+        return JSON.parse(await fetchText(url));
+    }
+
+    async function fetchGitHubCommitHistory(reference) {
+        const apiUrl = new URL(`https://api.github.com/repos/${reference.owner}/${reference.repo}/commits`);
+
+        apiUrl.searchParams.set('sha', reference.branch);
+        apiUrl.searchParams.set('path', reference.path);
+        apiUrl.searchParams.set('per_page', '20');
+
+        const commits = await fetchJson(apiUrl.toString());
+        return Array.isArray(commits) ? commits : [];
+    }
+
+    async function fetchCommitHashForPath(reference, commitSha) {
+        const rawUrl = `https://raw.githubusercontent.com/${reference.owner}/${reference.repo}/${commitSha}/${reference.path}`;
+        const source = await fetchText(rawUrl);
+        return sha256Hex(source);
+    }
+
+    async function findCommitForHash(reference, commits, targetHash) {
+        const normalizedTargetHash = normalizeHash(targetHash);
+
+        if (!normalizedTargetHash) {
+            return null;
+        }
+
+        for (const commit of commits) {
+            const commitSha = commit?.sha;
+
+            if (!commitSha) {
+                continue;
+            }
+
+            try {
+                if (normalizeHash(await fetchCommitHashForPath(reference, commitSha)) === normalizedTargetHash) {
+                    return commit;
+                }
+            } catch (error) {
+                console.warn(`[TM bootstrap] Failed to inspect ${reference.path} at commit ${commitSha}`, error);
+            }
+        }
+
+        return null;
+    }
+
+    async function getReviewInfo(record, previousHash) {
+        const reference = parseGitHubRawReference(record.url);
+
+        if (!reference) {
+            return null;
+        }
+
+        const urls = buildGitHubReviewUrls(reference);
+        const normalizedPreviousHash = normalizeHash(previousHash);
+
+        if (!normalizedPreviousHash) {
+            return {
+                url: urls.fileUrl,
+                label: 'Review file'
+            };
+        }
+
+        try {
+            const commits = await fetchGitHubCommitHistory(reference);
+
+            if (!commits.length) {
+                return {
+                    url: urls.historyUrl,
+                    label: 'Review file history'
+                };
+            }
+
+            const currentCommit = (await findCommitForHash(reference, commits, await ensureRecordHash(record))) || commits[0];
+            const previousCommit = await findCommitForHash(reference, commits, normalizedPreviousHash);
+
+            if (previousCommit?.sha && currentCommit?.sha && previousCommit.sha !== currentCommit.sha) {
+                return {
+                    url: urls.compareUrl(previousCommit.sha, currentCommit.sha),
+                    label: 'Review diff'
+                };
+            }
+        } catch (error) {
+            console.warn(`[TM bootstrap] Failed to prepare a GitHub review link for ${getDisplayName(record)}`, error);
+        }
+
+        return {
+            url: urls.historyUrl,
+            label: 'Review file history'
+        };
+    }
+
+    function openReviewLink(url) {
+        if (!url) {
+            return;
+        }
+
+        if (typeof GM_openInTab === 'function') {
+            GM_openInTab(url, {
+                active: false,
+                insert: true,
+                setParent: true
+            });
+            return;
+        }
+
+        console.info(`[TM bootstrap] Review URL: ${url}`);
     }
 
     async function loadManifest() {

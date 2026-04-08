@@ -34,7 +34,8 @@ This package contains:
 
 1. The user manually installs `Jira.loader.user.js` in Tampermonkey.
 2. The loader fetches the manifest and matching scripts from the GitHub repository via raw file URLs.
-3. New or changed remote manifests and scripts only load after local SHA-256 approval.
+3. New or changed remote manifests and scripts only load after local approval.
+4. When possible, the approval prompt opens a GitHub review page so the user can inspect the file diff/history before approving.
 
 The manually installed loader is the trusted anchor.
 
