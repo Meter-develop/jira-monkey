@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.1
+// @version      5.2
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -356,6 +356,35 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     font-size:11px;
     line-height:1.35;
     color:#5e6c84;
+}
+
+.tm-settings-actions{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid #dfe1e6;
+}
+
+.tm-settings-reset-button{
+    padding:5px 10px;
+    border:1px solid #dfe1e6;
+    border-radius:6px;
+    background:#ffffff;
+    color:#c9372c;
+    cursor:pointer;
+    font-size:12px;
+    font-weight:600;
+}
+
+.tm-settings-reset-button:hover{
+    background:#fff0f0;
+    border-color:#f5c2c0;
+}
+
+.tm-settings-reset-button:focus{
+    outline:2px solid #4c9aff;
+    outline-offset:2px;
 }
 
 .tm-settings-reload-chip{
@@ -1095,6 +1124,39 @@ function saveFeatureSettings(){
     }catch{}
 }
 
+function clearStoredSettings(){
+
+    try{
+        window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    }catch{}
+
+    try{
+        window.localStorage.removeItem(USER_CONFIG_STORAGE_KEY);
+    }catch{}
+}
+
+function resetStoredSettings(){
+
+    const confirmed = window.confirm(
+        "Reset Jira Board Suite settings to their first-run defaults? This clears feature preferences and the configured email domain, then reloads the page."
+    );
+
+    if(!confirmed) return;
+
+    clearStoredSettings();
+    featureSettings = { ...FEATURE_DEFAULTS };
+    userConfig = {};
+    currentUserInfo = null;
+    currentUserInfoPromise = null;
+    focusMode = false;
+    closeSettingsPanel();
+    applyImmediateFeatureState();
+
+    window.setTimeout(()=>{
+        window.location.reload();
+    }, 80);
+}
+
 function isFeatureEnabled(key){
 
     return featureSettings[key] !== false;
@@ -1306,6 +1368,9 @@ function renderSettingsPanel(panel){
             `).join("")}
         </div>
         <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live.</div>
+        <div class="tm-settings-actions">
+            <button type="button" class="tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
+        </div>
     `;
 
     panel.querySelectorAll("input[data-tm-setting]").forEach(input=>{
@@ -1328,6 +1393,12 @@ function renderSettingsPanel(panel){
 
             scheduleApply(0);
         });
+    });
+
+    panel.querySelector("[data-tm-settings-reset]")?.addEventListener("click", event=>{
+        event.preventDefault();
+        event.stopPropagation();
+        resetStoredSettings();
     });
 }
 
