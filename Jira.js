@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.11
+// @version      5.14
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -1320,16 +1320,27 @@ function formatLoadedScriptDate(value){
     return new Date(timestamp).toLocaleString();
 }
 
+function formatLoadedScriptVersion(info){
+
+    const sourceHash = String(info?.sourceHash || "").trim().toLowerCase();
+
+    if(sourceHash){
+        return sourceHash.slice(0, 8);
+    }
+
+    return "unknown";
+}
+
 function renderLoadedScriptMeta(){
 
     const info = getLoadedJiraScriptInfo();
-    const version = String(info?.version || "unknown").trim() || "unknown";
+    const version = formatLoadedScriptVersion(info);
     const sourceDate = info?.sourceStoredAt || info?.sourceFetchedAt || info?.loadedAt || 0;
 
     return `
         <div class="tm-settings-meta">
-            <span><strong>Loaded version:</strong> ${version}</span>
-            <span><strong>Loaded copy date:</strong> ${formatLoadedScriptDate(sourceDate)}</span>
+            <span><strong>Version:</strong> ${version}</span>
+            <span><strong>Date:</strong> ${formatLoadedScriptDate(sourceDate)}</span>
         </div>
     `;
 }
