@@ -1293,7 +1293,7 @@ function hasLoaderUpdateAvailable(){
 function readLoadedScriptsState(){
 
     try{
-        const parsed = window[LOADER_LOADED_SCRIPTS_STATE_KEY];
+        const parsed = JSON.parse(window.localStorage.getItem(LOADER_LOADED_SCRIPTS_STATE_KEY) || "{}");
         return parsed && typeof parsed === "object"
             ? parsed
             : {};
@@ -1639,6 +1639,14 @@ function installSettingsUiEvents(){
     window.addEventListener("storage", event=>{
         if(event.key === LOADER_UPDATE_STATUS_KEY){
             syncSettingsUpdateIndicator();
+        }
+
+        if(event.key === LOADER_LOADED_SCRIPTS_STATE_KEY){
+            const panel = getActiveSettingsPanel();
+
+            if(panel){
+                renderSettingsPanel(panel);
+            }
         }
     });
 

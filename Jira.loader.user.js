@@ -512,7 +512,7 @@
 
     function readLoadedScriptsState() {
         try {
-            const parsed = window[LOADED_SCRIPTS_STATE_KEY];
+            const parsed = JSON.parse(window.localStorage.getItem(LOADED_SCRIPTS_STATE_KEY) || '{}');
             return parsed && typeof parsed === 'object' ? parsed : {};
         } catch {
             return {};
@@ -523,7 +523,7 @@
         const normalizedState = nextState && typeof nextState === 'object' ? nextState : {};
 
         try {
-            window[LOADED_SCRIPTS_STATE_KEY] = normalizedState;
+            window.localStorage.setItem(LOADED_SCRIPTS_STATE_KEY, JSON.stringify(normalizedState));
         } catch {}
 
         window.dispatchEvent(new CustomEvent(LOADED_SCRIPTS_EVENT_NAME, {
