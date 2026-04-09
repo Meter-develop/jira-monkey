@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.8
+// @version      5.9
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -25,6 +25,8 @@ const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
 const LOADER_UPDATE_API_NAME = "__tmBootstrapCheckForUpdatesNow";
 const LOADER_UPDATE_EVENT_NAME = "tm-bootstrap-check-for-updates-now";
+const LOADER_UPDATE_STATUS_KEY = "tm-bootstrap-update-status-v1";
+const LOADER_UPDATE_STATUS_EVENT_NAME = "tm-bootstrap-update-status-change";
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -288,6 +290,26 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 .tm-settings-button:hover{
     background:transparent;
     color:#172b4d;
+}
+
+.tm-settings-button.tm-settings-button--update-available{
+    color:#c9372c;
+}
+
+.tm-settings-button.tm-settings-button--update-available::after{
+    content:"";
+    position:absolute;
+    top:1px;
+    right:1px;
+    width:7px;
+    height:7px;
+    border-radius:999px;
+    background:#c9372c;
+    box-shadow:0 0 0 2px #ffffff;
+}
+
+.tm-settings-button.tm-settings-button--update-available:hover{
+    color:#ae2e24;
 }
 
 .tm-settings-button:focus{
@@ -1239,6 +1261,41 @@ function isFeatureEnabled(key){
     return featureSettings[key] !== false;
 }
 
+function readLoaderUpdateStatus(){
+
+    try{
+        const parsed = JSON.parse(window.localStorage.getItem(LOADER_UPDATE_STATUS_KEY) || "{}");
+        return parsed && typeof parsed === "object"
+            ? parsed
+            : {};
+    }catch{
+        return {};
+    }
+}
+
+function hasLoaderUpdateAvailable(){
+
+    return Boolean(readLoaderUpdateStatus().hasUpdates);
+}
+
+function syncSettingsUpdateIndicator(){
+
+    const hasUpdates = hasLoaderUpdateAvailable();
+
+    document.querySelectorAll(".tm-settings-button").forEach(button=>{
+        button.classList.toggle("tm-settings-button--update-available", hasUpdates);
+        button.setAttribute(
+            "aria-label",
+            hasUpdates
+                ? "Board tweak settings (update available)"
+                : "Board tweak settings"
+        );
+        button.title = hasUpdates
+            ? "Board tweak settings (update available)"
+            : "Board tweak settings";
+    });
+}
+
 function applyFeatureClasses(){
 
     if(!document.body) return;
@@ -1444,7 +1501,7 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. Update now checks for newer loader-approved files in place and reloads only when an approved update needs to be applied.</div>
+        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. The cog turns red when a background check spots newer approved-loader files, and Update now performs the actual manual update.</div>
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
@@ -1523,6 +1580,16 @@ function installSettingsUiEvents(){
         }
     }, true);
 
+    window.addEventListener("storage", event=>{
+        if(event.key === LOADER_UPDATE_STATUS_KEY){
+            syncSettingsUpdateIndicator();
+        }
+    });
+
+    window.addEventListener(LOADER_UPDATE_STATUS_EVENT_NAME, ()=>{
+        syncSettingsUpdateIndicator();
+    });
+
 }
 
 function removeStaleSettingsSlots(container){
@@ -1592,6 +1659,8 @@ function ensureSettingsUi(){
         });
         slot.appendChild(button);
     }
+
+    syncSettingsUpdateIndicator();
 
     let panel = slot.querySelector(".tm-settings-panel");
 

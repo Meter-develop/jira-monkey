@@ -1,6 +1,7 @@
 {
   "cacheBust": false,
   "scriptCacheTtlSeconds": 900,
+  "updateCheckIntervalSeconds": 3600,
   "scripts": [
     {
       "url": "Jira.js",

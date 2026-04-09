@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.1
+// @version      4.2
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -28,11 +28,15 @@
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
     const UPDATE_API_NAME = '__tmBootstrapCheckForUpdatesNow';
     const UPDATE_EVENT_NAME = 'tm-bootstrap-check-for-updates-now';
+    const UPDATE_STATUS_KEY = 'tm-bootstrap-update-status-v1';
+    const UPDATE_STATUS_EVENT_NAME = 'tm-bootstrap-update-status-change';
     const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
     const DEFAULT_SCRIPT_CACHE_TTL_MS = 15 * 60 * 1000;
+    const DEFAULT_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
     const DEFAULT_MANIFEST = {
         cacheBust: false,
         scriptCacheTtlSeconds: DEFAULT_SCRIPT_CACHE_TTL_MS / 1000,
+        updateCheckIntervalSeconds: DEFAULT_UPDATE_CHECK_INTERVAL_MS / 1000,
         scripts: []
     };
     const loadedScriptUrls = new Set();
@@ -503,6 +507,44 @@
         writeForceRefreshFlag(true);
     }
 
+    function readUpdateStatus() {
+        try {
+            const parsed = JSON.parse(window.localStorage.getItem(UPDATE_STATUS_KEY) || '{}');
+            return parsed && typeof parsed === 'object'
+                ? parsed
+                : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function emitUpdateStatus(status) {
+        window.dispatchEvent(new CustomEvent(UPDATE_STATUS_EVENT_NAME, {
+            detail: status
+        }));
+    }
+
+    function writeUpdateStatus({ hasUpdates, checkedAt = Date.now() }) {
+        const nextStatus = {
+            hasUpdates: Boolean(hasUpdates),
+            checkedAt: Number(checkedAt) || Date.now()
+        };
+
+        try {
+            window.localStorage.setItem(UPDATE_STATUS_KEY, JSON.stringify(nextStatus));
+        } catch {}
+
+        emitUpdateStatus(nextStatus);
+        return nextStatus;
+    }
+
+    function shouldCheckForUpdates(intervalMs) {
+        const status = readUpdateStatus();
+        const checkedAt = Number(status?.checkedAt) || 0;
+
+        return !checkedAt || Date.now() - checkedAt >= Math.max(0, intervalMs);
+    }
+
     function getUpdateBridgeTarget() {
         try {
             return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -792,6 +834,7 @@
             approvalPromptCount = 0;
             let changesDetected = false;
             let approvedChangesDetected = false;
+            let unresolvedUpdateCount = 0;
 
             try {
                 const approvedManifestHash = await getApprovedHashFor('manifest', MANIFEST_URL);
@@ -801,9 +844,15 @@
 
                 if (manifestChanged) {
                     changesDetected = true;
+                    unresolvedUpdateCount += 1;
                 }
 
                 if (!(await ensureRecordIsTrusted(remoteManifestRecord))) {
+                    writeUpdateStatus({
+                        hasUpdates: unresolvedUpdateCount > 0,
+                        checkedAt: Date.now()
+                    });
+
                     return {
                         changesDetected,
                         approvedChangesDetected: false,
@@ -813,6 +862,7 @@
 
                 if (manifestChanged) {
                     approvedChangesDetected = true;
+                    unresolvedUpdateCount = Math.max(0, unresolvedUpdateCount - 1);
                 }
 
                 const manifest = parseManifestSource(remoteManifestRecord.source);
@@ -837,11 +887,18 @@
                     }
 
                     changesDetected = true;
+                    unresolvedUpdateCount += 1;
 
                     if (await ensureRecordIsTrusted(remoteRecord)) {
                         approvedChangesDetected = true;
+                        unresolvedUpdateCount = Math.max(0, unresolvedUpdateCount - 1);
                     }
                 }
+
+                writeUpdateStatus({
+                    hasUpdates: unresolvedUpdateCount > 0,
+                    checkedAt: Date.now()
+                });
 
                 if (!changesDetected) {
                     await showNoUpdatesModal();
@@ -876,6 +933,65 @@
         })();
 
         return manualUpdatePromise;
+    }
+
+    async function checkForAvailableUpdates() {
+        try {
+            const approvedManifestHash = await getApprovedHashFor('manifest', MANIFEST_URL);
+            const remoteManifestRecord = await fetchManifestRecord(true);
+            const remoteManifestHash = normalizeHash(await ensureRecordHash(remoteManifestRecord));
+
+            if (!approvedManifestHash || remoteManifestHash !== approvedManifestHash) {
+                writeUpdateStatus({
+                    hasUpdates: true,
+                    checkedAt: Date.now()
+                });
+                return true;
+            }
+
+            const remoteManifest = parseManifestSource(remoteManifestRecord.source);
+            const cacheBustEnabled = remoteManifest.cacheBust === true;
+            const defaultScriptCacheTtlMs = secondsToMilliseconds(
+                remoteManifest.scriptCacheTtlSeconds,
+                DEFAULT_SCRIPT_CACHE_TTL_MS
+            );
+            const candidateEntries = (remoteManifest.scripts || [])
+                .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
+                .filter(entry => entry?.enabled)
+                .filter(entry => pageRulesMatchCurrentPage(entry));
+
+            for (const entry of candidateEntries) {
+                const approvedHash = await getApprovedHashFor('script', entry.url);
+
+                if (!approvedHash) {
+                    writeUpdateStatus({
+                        hasUpdates: true,
+                        checkedAt: Date.now()
+                    });
+                    return true;
+                }
+
+                const remoteRecord = await fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh: true });
+                const remoteHash = normalizeHash(await ensureRecordHash(remoteRecord));
+
+                if (remoteHash !== approvedHash) {
+                    writeUpdateStatus({
+                        hasUpdates: true,
+                        checkedAt: Date.now()
+                    });
+                    return true;
+                }
+            }
+
+            writeUpdateStatus({
+                hasUpdates: false,
+                checkedAt: Date.now()
+            });
+            return false;
+        } catch (error) {
+            console.warn('[TM bootstrap] Failed while checking for passive updates.', error);
+            return Boolean(readUpdateStatus().hasUpdates);
+        }
     }
 
     function registerUpdateBridge() {
@@ -1494,6 +1610,10 @@
             manifest.scriptCacheTtlSeconds,
             DEFAULT_SCRIPT_CACHE_TTL_MS
         );
+        const updateCheckIntervalMs = secondsToMilliseconds(
+            manifest.updateCheckIntervalSeconds,
+            DEFAULT_UPDATE_CHECK_INTERVAL_MS
+        );
         const scriptEntries = (manifest.scripts || [])
             .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
             .filter(entry => entry?.enabled);
@@ -1588,6 +1708,10 @@
 
         if (forceRefresh && approvalPromptCount === 0) {
             await showNoUpdatesModal();
+        }
+
+        if (!forceRefresh && shouldCheckForUpdates(updateCheckIntervalMs)) {
+            void checkForAvailableUpdates();
         }
     }
 
