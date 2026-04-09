@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.10
+// @version      5.11
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -20,6 +20,7 @@
 
 const SP_FIELD = "customfield_10002";
 const REPOSITORY_URL = "https://github.com/Meter-develop/jira-monkey";
+const SCRIPT_URL = "https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/Jira.js";
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
@@ -27,6 +28,8 @@ const LOADER_UPDATE_API_NAME = "__tmBootstrapCheckForUpdatesNow";
 const LOADER_UPDATE_EVENT_NAME = "tm-bootstrap-check-for-updates-now";
 const LOADER_UPDATE_STATUS_KEY = "tm-bootstrap-update-status-v1";
 const LOADER_UPDATE_STATUS_EVENT_NAME = "tm-bootstrap-update-status-change";
+const LOADER_LOADED_SCRIPTS_STATE_KEY = "__tmBootstrapLoadedScripts";
+const LOADER_LOADED_SCRIPTS_EVENT_NAME = "tm-bootstrap-loaded-scripts-change";
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -378,13 +381,6 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     color:#5e6c84;
 }
 
-.tm-settings-note{
-    margin-top:10px;
-    font-size:11px;
-    line-height:1.35;
-    color:#5e6c84;
-}
-
 .tm-settings-actions{
     display:flex;
     justify-content:space-between;
@@ -455,6 +451,22 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 .tm-settings-repo-button:hover{
     background:#eef2f6;
     border-color:#afb8c1;
+}
+
+.tm-settings-meta{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px 10px;
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid #dfe1e6;
+    font-size:11px;
+    line-height:1.35;
+    color:#5e6c84;
+}
+
+.tm-settings-meta strong{
+    color:#172b4d;
 }
 
 .tm-settings-reload-chip{
@@ -1278,6 +1290,50 @@ function hasLoaderUpdateAvailable(){
     return Boolean(readLoaderUpdateStatus().hasUpdates);
 }
 
+function readLoadedScriptsState(){
+
+    try{
+        const parsed = window[LOADER_LOADED_SCRIPTS_STATE_KEY];
+        return parsed && typeof parsed === "object"
+            ? parsed
+            : {};
+    }catch{
+        return {};
+    }
+}
+
+function getLoadedJiraScriptInfo(){
+
+    const loadedScripts = readLoadedScriptsState();
+
+    return loadedScripts[SCRIPT_URL]
+        || Object.values(loadedScripts).find(script => script?.name === "Jira Board Suite")
+        || null;
+}
+
+function formatLoadedScriptDate(value){
+
+    const timestamp = Number(value);
+
+    if(!Number.isFinite(timestamp) || timestamp <= 0) return "unknown";
+
+    return new Date(timestamp).toLocaleString();
+}
+
+function renderLoadedScriptMeta(){
+
+    const info = getLoadedJiraScriptInfo();
+    const version = String(info?.version || "unknown").trim() || "unknown";
+    const sourceDate = info?.sourceStoredAt || info?.sourceFetchedAt || info?.loadedAt || 0;
+
+    return `
+        <div class="tm-settings-meta">
+            <span><strong>Loaded version:</strong> ${version}</span>
+            <span><strong>Loaded copy date:</strong> ${formatLoadedScriptDate(sourceDate)}</span>
+        </div>
+    `;
+}
+
 function syncSettingsUpdateIndicator(){
 
     const hasUpdates = hasLoaderUpdateAvailable();
@@ -1501,7 +1557,6 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. The cog turns red when a background check spots a newer loader or script update. Use Update now to review updates; loader updates must still be installed manually in Tampermonkey.</div>
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
@@ -1511,6 +1566,7 @@ function renderSettingsPanel(panel){
                 <button type="button" class="tm-settings-action-button tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
             </div>
         </div>
+        ${renderLoadedScriptMeta()}
     `;
 
     panel.querySelectorAll("input[data-tm-setting]").forEach(input=>{
@@ -1588,6 +1644,14 @@ function installSettingsUiEvents(){
 
     window.addEventListener(LOADER_UPDATE_STATUS_EVENT_NAME, ()=>{
         syncSettingsUpdateIndicator();
+    });
+
+    window.addEventListener(LOADER_LOADED_SCRIPTS_EVENT_NAME, ()=>{
+        const panel = getActiveSettingsPanel();
+
+        if(panel){
+            renderSettingsPanel(panel);
+        }
     });
 
 }

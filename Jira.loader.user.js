@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.3
+// @version      4.4
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -31,6 +31,8 @@
     const UPDATE_EVENT_NAME = 'tm-bootstrap-check-for-updates-now';
     const UPDATE_STATUS_KEY = 'tm-bootstrap-update-status-v1';
     const UPDATE_STATUS_EVENT_NAME = 'tm-bootstrap-update-status-change';
+    const LOADED_SCRIPTS_STATE_KEY = '__tmBootstrapLoadedScripts';
+    const LOADED_SCRIPTS_EVENT_NAME = 'tm-bootstrap-loaded-scripts-change';
     const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1000;
     const DEFAULT_SCRIPT_CACHE_TTL_MS = 15 * 60 * 1000;
     const DEFAULT_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -508,6 +510,48 @@
         writeForceRefreshFlag(true);
     }
 
+    function readLoadedScriptsState() {
+        try {
+            const parsed = window[LOADED_SCRIPTS_STATE_KEY];
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    function writeLoadedScriptsState(nextState) {
+        const normalizedState = nextState && typeof nextState === 'object' ? nextState : {};
+
+        try {
+            window[LOADED_SCRIPTS_STATE_KEY] = normalizedState;
+        } catch {}
+
+        window.dispatchEvent(new CustomEvent(LOADED_SCRIPTS_EVENT_NAME, {
+            detail: normalizedState
+        }));
+
+        return normalizedState;
+    }
+
+    function updateLoadedScriptState(record) {
+        const currentState = readLoadedScriptsState();
+        const scriptKey = record.url;
+        const nextState = {
+            ...currentState,
+            [scriptKey]: {
+                name: record.metadata?.name || getDisplayName(record),
+                url: record.url,
+                version: String(record.metadata?.version || '').trim(),
+                sourceHash: normalizeHash(record.sourceHash),
+                loadedAt: Date.now(),
+                sourceStoredAt: toFiniteNumber(record.sourceStoredAt) || null,
+                sourceFetchedAt: toFiniteNumber(record.sourceFetchedAt) || null
+            }
+        };
+
+        writeLoadedScriptsState(nextState);
+    }
+
     function getInstalledLoaderVersion() {
         return String(getGrantedApis().GM_info?.script?.version || '').trim();
     }
@@ -681,7 +725,8 @@
         ) {
             return {
                 source: approvedRecord.source,
-                sourceHash: normalizeHash(approvedRecord.sourceHash)
+                sourceHash: normalizeHash(approvedRecord.sourceHash),
+                storedAt: toFiniteNumber(approvedRecord.storedAt) || null
             };
         }
 
@@ -702,7 +747,9 @@
 
             return {
                 source: cachedRecord.source,
-                sourceHash: normalizeHash(cachedRecord.sourceHash)
+                sourceHash: normalizeHash(cachedRecord.sourceHash),
+                storedAt: toFiniteNumber(nextApprovedStore[getSourceCacheRecordKey(kind, url)]?.storedAt) || null,
+                fetchedAt: toFiniteNumber(cachedRecord.fetchedAt) || null
             };
         }
 
@@ -1262,6 +1309,7 @@
             return {
                 source,
                 sourceHash,
+                fetchedAt: Date.now(),
                 fromCache: false,
                 stale: false
             };
@@ -1631,7 +1679,8 @@
             url: entry.url,
             source: result.source,
             metadata: parseUserscriptMetadata(result.source),
-            sourceHash: result.sourceHash
+            sourceHash: result.sourceHash,
+            sourceFetchedAt: toFiniteNumber(result.fetchedAt) || null
         };
     }
 
@@ -1664,6 +1713,7 @@
         }
 
         loadedScriptUrls.add(record.url);
+        updateLoadedScriptState(record);
 
         const grantedApis = getGrantedApis();
         const runner = new Function(
@@ -1720,7 +1770,9 @@
                     url: entry.url,
                     source: approvedScript.source,
                     metadata: parseUserscriptMetadata(approvedScript.source),
-                    sourceHash: approvedScript.sourceHash
+                    sourceHash: approvedScript.sourceHash,
+                    sourceStoredAt: toFiniteNumber(approvedScript.storedAt) || null,
+                    sourceFetchedAt: toFiniteNumber(approvedScript.fetchedAt) || null
                 };
             }
         }
