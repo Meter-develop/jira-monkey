@@ -565,14 +565,28 @@ function getIssueCollectionRoot(){
     return document.getElementById("ghx-pool")
         || document.getElementById("ghx-plan")
         || document.getElementById("ghx-backlog")
-        || document.querySelector(".ghx-backlog, .ghx-backlog-container, .ghx-plan, .ghx-work")
+        || document.querySelector(".ghx-backlog, .ghx-backlog-container, .ghx-plan")
         || null;
+}
+
+function isStandaloneIssuePage(href = location.href){
+
+    const url = new URL(href, location.origin);
+    return /\/browse\/[^/?#]+$/i.test(url.pathname);
+}
+
+function hasBoardEnhancementContext(href = location.href){
+
+    if(isRapidBoardPage(href)) return true;
+    if(isStandaloneIssuePage(href)) return false;
+
+    return Boolean(getIssueCollectionRoot());
 }
 
 function hasVisibleJiraIssues(){
 
     return Boolean(document.querySelector(
-        "#ghx-pool [data-issue-key], #ghx-plan [data-issue-key], #ghx-backlog [data-issue-key], .ghx-backlog [data-issue-key], .ghx-backlog-container [data-issue-key], .ghx-issue[data-issue-key], .js-issue[data-issue-key], .ghx-swimlane-header[data-issue-key]"
+        "#ghx-pool [data-issue-key], #ghx-plan [data-issue-key], #ghx-backlog [data-issue-key], .ghx-backlog [data-issue-key], .ghx-backlog-container [data-issue-key], .ghx-swimlane-header[data-issue-key]"
     ));
 }
 
@@ -1367,8 +1381,10 @@ function applyFeatureClasses(){
 
     if(!document.body) return;
 
-    document.body.classList.toggle("tm-feature-assignee-names", isFeatureEnabled("showAssigneeNames"));
-    document.body.classList.toggle("tm-feature-optimize-issue-ids", isFeatureEnabled("optimizeIssueIds"));
+    const hasBoardContext = hasBoardEnhancementContext();
+
+    document.body.classList.toggle("tm-feature-assignee-names", hasBoardContext && isFeatureEnabled("showAssigneeNames"));
+    document.body.classList.toggle("tm-feature-optimize-issue-ids", hasBoardContext && isFeatureEnabled("optimizeIssueIds"));
     document.body.classList.toggle("tm-jira-board-view", isBoardViewActive());
     document.body.classList.toggle("tm-jira-backlog-view", isBacklogViewActive());
 }
@@ -1441,6 +1457,24 @@ function applyImmediateFeatureState(){
     syncFeatureSettingsFromStorage();
 
     applyFeatureClasses();
+
+    if(!hasBoardEnhancementContext()){
+        closeSettingsPanel();
+
+        if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
+            focusMode = false;
+            document.body?.classList.remove("tm-focus-mode");
+
+            const panel = getBoardPanel();
+            if(panel){
+                panel.style.width = `${lastFocusPanelWidth}px`;
+            }
+        }else if(focusMode){
+            syncFocusModeState();
+        }
+
+        return;
+    }
 
     if(isFeatureEnabled("showStoryPoints")){
         addPoints();
@@ -1540,7 +1574,7 @@ function isVisibleElement(node){
 
 function getQuickFiltersContainer(){
 
-    if(!isRapidBoardPage() && !hasVisibleJiraIssues()) return null;
+    if(!hasBoardEnhancementContext()) return null;
 
     const candidates = [...document.querySelectorAll(
         "#js-work-quickfilters, .ghx-quick-content, #js-quickfilters, .js-quickfilters, #js-quick-filters, .js-quick-filters, #ghx-quickfilters, .ghx-quickfilters, #ghx-quick-filters, .ghx-quick-filters, #quick-filters, .quick-filters"
@@ -2267,6 +2301,14 @@ function handleNavigation(){
     if(!routeChanged) return;
 
     lastBoardRouteKey = routeKey;
+
+    if(!hasBoardEnhancementContext(location.href)){
+        boardRefreshPending = false;
+        closeSettingsPanel();
+        applyImmediateFeatureState();
+        return;
+    }
+
     markBoardDirty({ hideBoard: true });
     scheduleApply(200);
     scheduleEnsureSettingsUi(350);
@@ -2324,6 +2366,8 @@ function startObserver(){
     observerStarted = true;
 
     const observer = new MutationObserver(mutations=>{
+
+        if(!hasBoardEnhancementContext()) return;
 
         const hasCriticalBoardMutation = mutations.some(mutation=>
             mutation.type === "childList"
@@ -2744,6 +2788,8 @@ function sortSubtasks(){
 
 async function applyBoardEnhancements(){
 
+    if(!hasBoardEnhancementContext()) return;
+
     const pool = document.getElementById("ghx-pool");
     const hasIssues = hasVisibleJiraIssues();
 
@@ -2829,13 +2875,16 @@ async function init(){
         if(!isLikelyJiraPage()) return;
 
         applyImmediateFeatureState();
-        ensureSettingsUi();
-        scheduleEnsureSettingsUi(350);
 
         installFocusShortcut();
         installHooks();
         startObserver();
         lastBoardRouteKey = getBoardRouteKey();
+
+        if(!hasBoardEnhancementContext()) return;
+
+        ensureSettingsUi();
+        scheduleEnsureSettingsUi(350);
 
         if(isRapidBoardPage() && (document.querySelector("#ghx-pool") || hasVisibleJiraIssues())){
             markBoardDirty();
