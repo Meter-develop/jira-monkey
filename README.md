@@ -37,7 +37,8 @@ This package contains:
 3. New or changed remote manifests and scripts only load after local approval.
 4. When possible, the approval modal includes a clickable GitHub diff/history/file review link plus an open-in-new-tab action before approval.
 5. The loader also performs periodic passive update checks on matching pages and can signal when updates are available.
-6. Manual update checks still run in place: they either show the changed-file approval flow or a modal saying no update is available.
+6. The manually installed `Jira.loader.user.js` is also checked separately for newer versions.
+7. Manual update checks still run in place: they either show the changed-file approval flow, a manual-loader-update message, or a modal saying no update is available.
 
 For efficiency, the bootstrap keeps a short local cache of fetched sources:
 
@@ -47,7 +48,7 @@ For efficiency, the bootstrap keeps a short local cache of fetched sources:
 - setting `cacheBust: true` in the manifest switches back to always-fresh dev-style fetching
 - use `Update now` in the Jira settings panel or `TM Bootstrap: Check for updates now` in Tampermonkey to immediately check the latest manifest and matching scripts; the page only reloads when an approved update needs to be applied
 
-When a passive check detects a newer manifest or script, the Jira settings cog turns red until you manually run `Update now` and either approve or dismiss the pending update.
+When a passive check detects a newer loader, manifest, or script, the Jira settings cog turns red until you manually run `Update now`. If the loader itself is outdated, the loader update takes priority and you are prompted to update that manually in Tampermonkey before applying other updates.
 
 Update modals stay open until you use one of their buttons, so no more accidental backdrop or Escape-key vanish acts.
 

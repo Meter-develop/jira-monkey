@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.9
+// @version      5.10
 // @match        *://*/secure/*
 // @match        *://*/browse/*
 // @match        *://*/projects/*
@@ -1501,7 +1501,7 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
-        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. The cog turns red when a background check spots newer approved-loader files, and Update now performs the actual manual update.</div>
+        <div class="tm-settings-note">Sorting changes reload the board so Jira can restore its native order cleanly. Other tweaks update live. The cog turns red when a background check spots a newer loader or script update. Use Update now to review updates; loader updates must still be installed manually in Tampermonkey.</div>
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>

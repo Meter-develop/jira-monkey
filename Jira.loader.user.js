@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.2
+// @version      4.3
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -21,6 +21,7 @@
     'use strict';
 
     const MANIFEST_URL = 'https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/loader.manifest.json';
+    const LOADER_SELF_URL = 'https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/Jira.loader.user.js';
     const MANIFEST_EXPECTED_HASH = '';
     const TRUST_STORE_KEY = 'tm-bootstrap-approved-script-hashes-v1';
     const APPROVED_SOURCE_STORE_KEY = 'tm-bootstrap-approved-sources-v1';
@@ -507,6 +508,42 @@
         writeForceRefreshFlag(true);
     }
 
+    function getInstalledLoaderVersion() {
+        return String(getGrantedApis().GM_info?.script?.version || '').trim();
+    }
+
+    function compareVersionTokens(leftToken, rightToken) {
+        const leftNumber = Number(leftToken);
+        const rightNumber = Number(rightToken);
+        const leftIsNumber = Number.isFinite(leftNumber) && String(leftNumber) === String(leftToken);
+        const rightIsNumber = Number.isFinite(rightNumber) && String(rightNumber) === String(rightToken);
+
+        if (leftIsNumber && rightIsNumber) {
+            return leftNumber - rightNumber;
+        }
+
+        return String(leftToken).localeCompare(String(rightToken), undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        });
+    }
+
+    function compareVersions(leftVersion, rightVersion) {
+        const leftTokens = String(leftVersion || '0').split(/[^0-9A-Za-z]+/).filter(Boolean);
+        const rightTokens = String(rightVersion || '0').split(/[^0-9A-Za-z]+/).filter(Boolean);
+        const maxLength = Math.max(leftTokens.length, rightTokens.length);
+
+        for (let index = 0; index < maxLength; index += 1) {
+            const comparison = compareVersionTokens(leftTokens[index] ?? '0', rightTokens[index] ?? '0');
+
+            if (comparison !== 0) {
+                return comparison;
+            }
+        }
+
+        return 0;
+    }
+
     function readUpdateStatus() {
         try {
             const parsed = JSON.parse(window.localStorage.getItem(UPDATE_STATUS_KEY) || '{}');
@@ -825,6 +862,71 @@
         });
     }
 
+    async function fetchLoaderSelfRecord(forceRefresh = false) {
+        const response = await fetchText(appendCacheBust(LOADER_SELF_URL, forceRefresh), {
+            cacheKind: 'loader',
+            cacheKey: LOADER_SELF_URL,
+            cacheTtlMs: MANIFEST_CACHE_TTL_MS,
+            bypassCache: forceRefresh
+        });
+
+        return {
+            kind: 'loader',
+            displayName: 'Jira.loader.user.js',
+            url: LOADER_SELF_URL,
+            source: response.source,
+            sourceHash: response.sourceHash,
+            metadata: parseUserscriptMetadata(response.source),
+            fromCache: response.fromCache
+        };
+    }
+
+    async function getLoaderSelfUpdateStatus(forceRefresh = false) {
+        const record = await fetchLoaderSelfRecord(forceRefresh);
+        const installedVersion = getInstalledLoaderVersion();
+        const availableVersion = String(record.metadata?.version || '').trim();
+        const hasUpdate = Boolean(availableVersion) && compareVersions(availableVersion, installedVersion) > 0;
+
+        return {
+            hasUpdate,
+            installedVersion,
+            availableVersion,
+            record
+        };
+    }
+
+    async function showLoaderSelfUpdateModal(loaderStatus) {
+        const acknowledged = await showDecisionModal({
+            title: 'Bootstrap loader update available',
+            message: 'The manually installed Tampermonkey loader has a newer version. Please update the loader itself in Tampermonkey before applying any other pending updates.',
+            details: [
+                {
+                    label: 'Installed version',
+                    value: loaderStatus.installedVersion || '(unknown)',
+                    code: true
+                },
+                {
+                    label: 'Available version',
+                    value: loaderStatus.availableVersion || '(unknown)',
+                    code: true
+                },
+                {
+                    label: 'Install URL',
+                    value: LOADER_SELF_URL,
+                    code: true
+                }
+            ],
+            reviewInfo: {
+                url: LOADER_SELF_URL,
+                label: 'Open loader install/update URL'
+            },
+            approveLabel: 'Close',
+            cancelLabel: null
+        });
+
+        return acknowledged;
+    }
+
     async function runManualUpdateCheck() {
         if (manualUpdatePromise) {
             return manualUpdatePromise;
@@ -837,6 +939,23 @@
             let unresolvedUpdateCount = 0;
 
             try {
+                const loaderStatus = await getLoaderSelfUpdateStatus(true);
+
+                if (loaderStatus.hasUpdate) {
+                    writeUpdateStatus({
+                        hasUpdates: true,
+                        checkedAt: Date.now()
+                    });
+                    await showLoaderSelfUpdateModal(loaderStatus);
+
+                    return {
+                        changesDetected: true,
+                        approvedChangesDetected: false,
+                        blocked: true,
+                        loaderUpdate: true
+                    };
+                }
+
                 const approvedManifestHash = await getApprovedHashFor('manifest', MANIFEST_URL);
                 const remoteManifestRecord = await fetchManifestRecord(true);
                 const remoteManifestHash = normalizeHash(await ensureRecordHash(remoteManifestRecord));
@@ -937,6 +1056,16 @@
 
     async function checkForAvailableUpdates() {
         try {
+            const loaderStatus = await getLoaderSelfUpdateStatus(true);
+
+            if (loaderStatus.hasUpdate) {
+                writeUpdateStatus({
+                    hasUpdates: true,
+                    checkedAt: Date.now()
+                });
+                return true;
+            }
+
             const approvedManifestHash = await getApprovedHashFor('manifest', MANIFEST_URL);
             const remoteManifestRecord = await fetchManifestRecord(true);
             const remoteManifestHash = normalizeHash(await ensureRecordHash(remoteManifestRecord));
