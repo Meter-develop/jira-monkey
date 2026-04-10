@@ -903,7 +903,7 @@
     async function showNoUpdatesModal() {
         await showDecisionModal({
             title: 'No updates available',
-            message: 'The loader checked the latest manifest and all enabled scripts, and everything is already up to date.',
+            message: 'The loader checked the latest manifest and the scripts relevant to this page, and everything is already up to date.',
             approveLabel: 'Close',
             cancelLabel: null
         });
@@ -1037,9 +1037,7 @@
                     manifest.scriptCacheTtlSeconds,
                     DEFAULT_SCRIPT_CACHE_TTL_MS
                 );
-                const candidateEntries = (manifest.scripts || [])
-                    .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
-                    .filter(entry => entry?.enabled);
+                const candidateEntries = getPageMatchingManifestEntries(manifest);
 
                 for (const entry of candidateEntries) {
                     const approvedHash = await getApprovedHashFor('script', entry.url);
@@ -1130,9 +1128,7 @@
                 remoteManifest.scriptCacheTtlSeconds,
                 DEFAULT_SCRIPT_CACHE_TTL_MS
             );
-            const candidateEntries = (remoteManifest.scripts || [])
-                .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
-                .filter(entry => entry?.enabled);
+            const candidateEntries = getPageMatchingManifestEntries(remoteManifest);
 
             for (const entry of candidateEntries) {
                 const approvedHash = await getApprovedHashFor('script', entry.url);
@@ -1563,6 +1559,17 @@
         return null;
     }
 
+    function getEnabledManifestEntries(manifest) {
+        return (manifest.scripts || [])
+            .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
+            .filter(entry => entry?.enabled);
+    }
+
+    function getPageMatchingManifestEntries(manifest, href = location.href) {
+        return getEnabledManifestEntries(manifest)
+            .filter(entry => pageRulesMatchCurrentPage(entry, href));
+    }
+
     function parseUserscriptMetadata(source) {
         const blockMatch = source.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/i);
         const metadata = {
@@ -1611,7 +1618,7 @@
         return wildcardToRegExp(pattern).test(href);
     }
 
-    function pageRulesMatchCurrentPage(source) {
+    function pageRulesMatchCurrentPage(source, href = location.href) {
         const rules = {
             match: normalizePatternList(source?.match),
             include: normalizePatternList(source?.include),
@@ -1620,20 +1627,20 @@
         };
         const hasMatchRules = rules.match.length > 0 || rules.include.length > 0;
 
-        if (rules['exclude-match'].some(pattern => matchesPattern(pattern))) {
+        if (rules['exclude-match'].some(pattern => matchesPattern(pattern, href))) {
             return false;
         }
 
-        if (rules.exclude.some(pattern => matchesPattern(pattern))) {
+        if (rules.exclude.some(pattern => matchesPattern(pattern, href))) {
             return false;
         }
 
         if (rules.match.length > 0) {
-            return rules.match.some(pattern => matchesPattern(pattern));
+            return rules.match.some(pattern => matchesPattern(pattern, href));
         }
 
         if (rules.include.length > 0) {
-            return rules.include.some(pattern => matchesPattern(pattern));
+            return rules.include.some(pattern => matchesPattern(pattern, href));
         }
 
         return !hasMatchRules || true;
@@ -1793,11 +1800,9 @@
             manifest.updateCheckIntervalSeconds,
             DEFAULT_UPDATE_CHECK_INTERVAL_MS
         );
-        const scriptEntries = (manifest.scripts || [])
-            .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
-            .filter(entry => entry?.enabled);
+        const scriptEntries = getEnabledManifestEntries(manifest);
 
-        const candidateEntries = scriptEntries.filter(entry => pageRulesMatchCurrentPage(entry));
+        const candidateEntries = getPageMatchingManifestEntries(manifest);
 
         if (!scriptEntries.length) {
             console.info('[TM bootstrap] Manifest loaded but contains no enabled scripts.');
@@ -1889,7 +1894,7 @@
             await showNoUpdatesModal();
         }
 
-        if (!forceRefresh && shouldCheckForUpdates(updateCheckIntervalMs)) {
+        if (!forceRefresh && (shouldCheckForUpdates(updateCheckIntervalMs) || readUpdateStatus().hasUpdates)) {
             void checkForAvailableUpdates();
         }
     }
