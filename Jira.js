@@ -569,6 +569,11 @@ function getIssueCollectionRoot(){
         || null;
 }
 
+function getBoardEnhancementScope(){
+
+    return getIssueCollectionRoot() || document;
+}
+
 function isStandaloneIssuePage(href = location.href){
 
     const url = new URL(href, location.origin);
@@ -991,7 +996,7 @@ function matchesCurrentUserFromAvatar(avatar, user = currentUserInfo){
     return Boolean(avatarName) && isCurrentUserAssignee(avatarName, user.displayName || getCurrentUserDisplayName());
 }
 
-function applyAssigneeEnhancements(scope = document){
+function applyAssigneeEnhancements(scope = getBoardEnhancementScope()){
 
     const shouldShowLabels = isFeatureEnabled("showAssigneeNames") && isBoardViewActive();
 
@@ -1030,7 +1035,7 @@ function applyAssigneeEnhancements(scope = document){
     });
 }
 
-function highlightCurrentUserIssueCards(){
+function highlightCurrentUserIssueCards(scope = getBoardEnhancementScope()){
 
     const fallbackUser = {
         displayName: getCurrentUserDisplayName(),
@@ -1039,11 +1044,11 @@ function highlightCurrentUserIssueCards(){
     const seenCards = new Set();
     let highlightCount = 0;
 
-    document.querySelectorAll(".ghx-parent-group.tm-highlight-card, .js-fake-parent.tm-highlight-card, .ghx-subtask-group.tm-highlight-card").forEach(node=>{
+    scope.querySelectorAll(".ghx-parent-group.tm-highlight-card, .js-fake-parent.tm-highlight-card, .ghx-subtask-group.tm-highlight-card").forEach(node=>{
         node.classList.remove("tm-highlight-card");
     });
 
-    document.querySelectorAll(".ghx-avatar-img, .ghx-auto-avatar").forEach(avatar=>{
+    scope.querySelectorAll(".ghx-avatar-img, .ghx-auto-avatar").forEach(avatar=>{
 
         const target = avatar.closest(".ghx-issue, .js-issue");
 
@@ -1069,7 +1074,7 @@ function highlightCurrentUserIssueCards(){
         }
     });
 
-    document.querySelectorAll(".ghx-issue.tm-highlight-card, .js-issue.tm-highlight-card").forEach(node=>{
+    scope.querySelectorAll(".ghx-issue.tm-highlight-card, .js-issue.tm-highlight-card").forEach(node=>{
 
         if(!seenCards.has(node)){
             node.classList.remove("tm-highlight-card");
@@ -1476,6 +1481,8 @@ function applyImmediateFeatureState(){
         return;
     }
 
+    const enhancementScope = getBoardEnhancementScope();
+
     if(isFeatureEnabled("showStoryPoints")){
         addPoints();
     }else{
@@ -1491,7 +1498,7 @@ function applyImmediateFeatureState(){
     if(!isFeatureEnabled("simplifySubtaskCards")){
         resetSubtaskCards();
     }else if(document.getElementById("ghx-pool")){
-        markSubtaskCards();
+        markSubtaskCards(enhancementScope);
     }
 
     if(!isFeatureEnabled("optimizeIssueIds")){
@@ -1499,9 +1506,9 @@ function applyImmediateFeatureState(){
     }
 
     if(hasVisibleJiraIssues()){
-        syncIssueFieldTypography();
-        applyAssigneeEnhancements(document);
-        highlightCurrentUserIssueCards();
+        syncIssueFieldTypography(enhancementScope);
+        applyAssigneeEnhancements(enhancementScope);
+        highlightCurrentUserIssueCards(enhancementScope);
     }
 
     if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
@@ -2268,6 +2275,29 @@ function shouldReactToBoardAttributeMutation(mutation){
     return mutation.attributeName === "data-issue-key" && isBoardMutationTarget(target);
 }
 
+function isElementNode(node){
+
+    return node?.nodeType === Node.ELEMENT_NODE;
+}
+
+function doesMutationTouchContainer(mutation, container){
+
+    if(mutation?.type !== "childList" || !container) return false;
+
+    if(isElementNode(mutation.target) && (mutation.target === container || container.contains(mutation.target))){
+        return true;
+    }
+
+    return [...mutation.addedNodes, ...mutation.removedNodes].some(node=>
+        isElementNode(node)
+        && (
+            node === container
+            || container.contains(node)
+            || node.contains(container)
+        )
+    );
+}
+
 function markBoardDirty({ hideBoard = false } = {}){
 
     boardRefreshPending = true;
@@ -2369,6 +2399,8 @@ function startObserver(){
 
         if(!hasBoardEnhancementContext()) return;
 
+        const boardRoot = getIssueCollectionRoot();
+
         const hasCriticalBoardMutation = mutations.some(mutation=>
             mutation.type === "childList"
             && [...mutation.addedNodes, ...mutation.removedNodes].some(isCriticalBoardMutationNode)
@@ -2383,11 +2415,12 @@ function startObserver(){
         const shouldApply = hasCriticalBoardMutation || mutations.some(mutation=>
             (
                 mutation.type === "childList"
-                && [...mutation.addedNodes, ...mutation.removedNodes].some(isBoardMutationNode)
+                && doesMutationTouchContainer(mutation, boardRoot)
             )
             || (
                 mutation.type === "attributes"
                 && shouldReactToBoardAttributeMutation(mutation)
+                && (!boardRoot || boardRoot.contains(mutation.target))
             )
         );
 
@@ -2445,9 +2478,9 @@ async function fetchIssue(key){
 
 async function preloadAll(){
 
-    const keys = [...document.querySelectorAll("[data-issue-key]")]
+    const keys = [...new Set([...getBoardEnhancementScope().querySelectorAll("[data-issue-key]")]
         .map(e => e.dataset.issueKey)
-        .filter(Boolean);
+        .filter(Boolean))];
 
     await Promise.all(keys.map(fetchIssue));
 }
@@ -2473,9 +2506,9 @@ function addPoints(){
     });
 }
 
-function markSubtaskCards(){
+function markSubtaskCards(scope = getBoardEnhancementScope()){
 
-    document.querySelectorAll(".ghx-issue[data-issue-key]").forEach(issue=>{
+    scope.querySelectorAll(".ghx-issue[data-issue-key]").forEach(issue=>{
 
         const key = issue.dataset.issueKey;
         const isSubtask = Boolean(cache.get(key)?.subtask);
@@ -2489,9 +2522,9 @@ function markSubtaskCards(){
     });
 }
 
-function trimDisplayedParentKeys(){
+function trimDisplayedParentKeys(scope = getBoardEnhancementScope()){
 
-    document.querySelectorAll(".ghx-parent-key").forEach(link=>{
+    scope.querySelectorAll(".ghx-parent-key").forEach(link=>{
 
         if(link.dataset.tmTrimmedPrefix === "true") return;
 
@@ -2501,9 +2534,9 @@ function trimDisplayedParentKeys(){
     });
 }
 
-function syncIssueFieldTypography(){
+function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
 
-    document.querySelectorAll(".ghx-issue-fields").forEach(fields=>{
+    scope.querySelectorAll(".ghx-issue-fields").forEach(fields=>{
 
         const projectKey = fields.querySelector(".ghx-key-link-project-key");
         const issueNumber = fields.querySelector(".ghx-key-link-issue-num");
@@ -2725,9 +2758,15 @@ function sort(){
              - new Date(cache.get(kA)?.resolved || 0);
     });
 
+    const orderedLanes = [...active, ...done];
+
+    if(orderedLanes.every((lane, index) => lane === lanes[index])){
+        return;
+    }
+
     const anchor = pool.querySelector("#js-pool-end");
 
-    [...active, ...done].forEach(sl=>{
+    orderedLanes.forEach(sl=>{
         pool.insertBefore(sl, anchor);
     });
 }
@@ -2766,6 +2805,8 @@ function sortSubtasks(){
             return getIssueUpdatedTime(keyB) - getIssueUpdatedTime(keyA);
         });
 
+        if(sortedIssues.every((issue, index) => issue === issues[index])) return;
+
         const sortableIssues = new Set(issues);
         const orderedChildren = [...container.children];
         const fragment = document.createDocumentFragment();
@@ -2792,6 +2833,7 @@ async function applyBoardEnhancements(){
 
     const pool = document.getElementById("ghx-pool");
     const hasIssues = hasVisibleJiraIssues();
+    const enhancementScope = getBoardEnhancementScope();
 
     if((!pool && !hasIssues) || isApplying) return;
 
@@ -2817,18 +2859,18 @@ async function applyBoardEnhancements(){
         }
 
         if(isFeatureEnabled("simplifySubtaskCards")){
-            markSubtaskCards();
+            markSubtaskCards(enhancementScope);
         }else{
             resetSubtaskCards();
         }
 
         if(isFeatureEnabled("optimizeIssueIds")){
-            trimDisplayedParentKeys();
+            trimDisplayedParentKeys(enhancementScope);
         }else{
             restoreTrimmedParentKeys();
         }
 
-        syncIssueFieldTypography();
+        syncIssueFieldTypography(enhancementScope);
 
         if(pool && isFeatureEnabled("showStoryPoints")){
             addPoints();
@@ -2842,8 +2884,8 @@ async function applyBoardEnhancements(){
             resetColumnTotals();
         }
 
-        applyAssigneeEnhancements(document);
-        highlightCurrentUserIssueCards();
+        applyAssigneeEnhancements(enhancementScope);
+        highlightCurrentUserIssueCards(enhancementScope);
 
         if(focusMode){
             syncFocusModeState();
