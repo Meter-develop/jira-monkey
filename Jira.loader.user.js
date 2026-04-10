@@ -901,12 +901,19 @@
     }
 
     async function showNoUpdatesModal() {
-        await showDecisionModal({
+        const acknowledged = await showDecisionModal({
             title: 'No updates available',
             message: 'The loader checked the latest manifest and the scripts relevant to this page, and everything is already up to date.',
             approveLabel: 'Close',
-            cancelLabel: null
+            cancelLabel: 'Force update anyway'
         });
+
+        if (acknowledged) {
+            return;
+        }
+
+        requestForceRefresh();
+        window.location.reload();
     }
 
     async function fetchLoaderSelfRecord(forceRefresh = false) {
