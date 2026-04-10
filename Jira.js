@@ -527,6 +527,7 @@ const sprintCache = new Map();
 const sprintInflight = new Map();
 let applyTimer = 0;
 let isApplying = false;
+let boardObserver = null;
 let observerStarted = false;
 let hooksInstalled = false;
 let lastBoardRouteKey = "";
@@ -2321,6 +2322,14 @@ function scheduleApply(delay = 150){
     }, delay);
 }
 
+function stopObserver(){
+
+    if(!boardObserver || !observerStarted) return;
+
+    boardObserver.disconnect();
+    observerStarted = false;
+}
+
 function handleNavigation(){
 
     const routeKey = getBoardRouteKey();
@@ -2333,12 +2342,14 @@ function handleNavigation(){
     lastBoardRouteKey = routeKey;
 
     if(!hasBoardEnhancementContext(location.href)){
+        stopObserver();
         boardRefreshPending = false;
         closeSettingsPanel();
         applyImmediateFeatureState();
         return;
     }
 
+    startObserver();
     markBoardDirty({ hideBoard: true });
     scheduleApply(200);
     scheduleEnsureSettingsUi(350);
@@ -2391,46 +2402,50 @@ function installHooks(){
 
 function startObserver(){
 
-    if(observerStarted || !document.body) return;
+    if(!document.body) return;
+
+    if(!boardObserver){
+        boardObserver = new MutationObserver(mutations=>{
+
+            if(!hasBoardEnhancementContext()) return;
+
+            const boardRoot = getIssueCollectionRoot();
+
+            const hasCriticalBoardMutation = mutations.some(mutation=>
+                mutation.type === "childList"
+                && [...mutation.addedNodes, ...mutation.removedNodes].some(isCriticalBoardMutationNode)
+            );
+
+            if(hasCriticalBoardMutation){
+                scheduleEnsureSettingsUi(80);
+            }
+
+            if(isApplying || (Date.now() < observerIgnoreUntil && !hasCriticalBoardMutation)) return;
+
+            const shouldApply = hasCriticalBoardMutation || mutations.some(mutation=>
+                (
+                    mutation.type === "childList"
+                    && doesMutationTouchContainer(mutation, boardRoot)
+                )
+                || (
+                    mutation.type === "attributes"
+                    && shouldReactToBoardAttributeMutation(mutation)
+                    && (!boardRoot || boardRoot.contains(mutation.target))
+                )
+            );
+
+            if(shouldApply){
+                markBoardDirty();
+                scheduleApply(120);
+            }
+        });
+    }
+
+    if(observerStarted) return;
 
     observerStarted = true;
 
-    const observer = new MutationObserver(mutations=>{
-
-        if(!hasBoardEnhancementContext()) return;
-
-        const boardRoot = getIssueCollectionRoot();
-
-        const hasCriticalBoardMutation = mutations.some(mutation=>
-            mutation.type === "childList"
-            && [...mutation.addedNodes, ...mutation.removedNodes].some(isCriticalBoardMutationNode)
-        );
-
-        if(hasCriticalBoardMutation){
-            scheduleEnsureSettingsUi(80);
-        }
-
-        if(isApplying || (Date.now() < observerIgnoreUntil && !hasCriticalBoardMutation)) return;
-
-        const shouldApply = hasCriticalBoardMutation || mutations.some(mutation=>
-            (
-                mutation.type === "childList"
-                && doesMutationTouchContainer(mutation, boardRoot)
-            )
-            || (
-                mutation.type === "attributes"
-                && shouldReactToBoardAttributeMutation(mutation)
-                && (!boardRoot || boardRoot.contains(mutation.target))
-            )
-        );
-
-        if(shouldApply){
-            markBoardDirty();
-            scheduleApply(120);
-        }
-    });
-
-    observer.observe(document.body, {
+    boardObserver.observe(document.body, {
         attributes: true,
         attributeFilter: ["data-issue-key"],
         childList: true,
@@ -2920,11 +2935,11 @@ async function init(){
 
         installFocusShortcut();
         installHooks();
-        startObserver();
         lastBoardRouteKey = getBoardRouteKey();
 
         if(!hasBoardEnhancementContext()) return;
 
+        startObserver();
         ensureSettingsUi();
         scheduleEnsureSettingsUi(350);
 
