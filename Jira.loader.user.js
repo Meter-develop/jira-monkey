@@ -903,7 +903,7 @@
     async function showNoUpdatesModal() {
         await showDecisionModal({
             title: 'No updates available',
-            message: 'The loader checked the latest manifest and matching scripts for this page, and everything is already up to date.',
+            message: 'The loader checked the latest manifest and all enabled scripts, and everything is already up to date.',
             approveLabel: 'Close',
             cancelLabel: null
         });
@@ -1039,8 +1039,7 @@
                 );
                 const candidateEntries = (manifest.scripts || [])
                     .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
-                    .filter(entry => entry?.enabled)
-                    .filter(entry => pageRulesMatchCurrentPage(entry));
+                    .filter(entry => entry?.enabled);
 
                 for (const entry of candidateEntries) {
                     const approvedHash = await getApprovedHashFor('script', entry.url);
@@ -1133,8 +1132,7 @@
             );
             const candidateEntries = (remoteManifest.scripts || [])
                 .map(entry => normalizeManifestEntry(entry, MANIFEST_URL))
-                .filter(entry => entry?.enabled)
-                .filter(entry => pageRulesMatchCurrentPage(entry));
+                .filter(entry => entry?.enabled);
 
             for (const entry of candidateEntries) {
                 const approvedHash = await getApprovedHashFor('script', entry.url);

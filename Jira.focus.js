@@ -85,6 +85,10 @@ function syncFocusModeState(){
 
 function toggleFocusMode(){
 
+    if(!stylesInstalled){
+        installStyles();
+    }
+
     focusMode = !focusMode;
     syncFocusModeState();
 }
@@ -129,7 +133,6 @@ function installStorageSync(){
     });
 }
 
-installStyles();
 installFocusShortcut();
 installStorageSync();
 
