@@ -6,6 +6,12 @@
     {
       "url": "Jira.js",
       "match": [
+        "*://*/secure/RapidBoard.jspa*"
+      ]
+    },
+    {
+      "url": "Jira.focus.js",
+      "match": [
         "*://*/secure/*",
         "*://*/browse/*",
         "*://*/projects/*",
@@ -13,6 +19,9 @@
         "*://*/jira/*",
         "*://*/servicedesk/*",
         "*://*/plugins/*"
+      ],
+      "exclude-match": [
+        "*://*/secure/RapidBoard.jspa*"
       ]
     }
   ]

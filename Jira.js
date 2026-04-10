@@ -1,19 +1,15 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.14
-// @match        *://*/secure/*
-// @match        *://*/browse/*
-// @match        *://*/projects/*
-// @match        *://*/issues/*
-// @match        *://*/jira/*
-// @match        *://*/servicedesk/*
-// @match        *://*/plugins/*
+// @version      5.15
+// @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
 // ==/UserScript==
 
 (function () {
 'use strict';
+
+window.__tmJiraBoardSuiteInstalled = true;
 
 /* ========================= */
 /* CONFIG */
