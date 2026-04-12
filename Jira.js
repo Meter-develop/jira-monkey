@@ -2855,6 +2855,9 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
 
         const projectKey = fields.querySelector(".ghx-key-link-project-key");
         const issueNumber = fields.querySelector(".ghx-key-link-issue-num");
+        const simpleIssueKeyLink = !projectKey && !issueNumber
+            ? fields.querySelector(".ghx-key .ghx-key-link, .ghx-key .js-key-link")
+            : null;
         const summary = fields.querySelector(".ghx-summary");
         const summaryInner = summary?.querySelector(".ghx-inner") || summary;
         const keyLinks = fields.querySelectorAll(".ghx-key .ghx-key-link, .ghx-key .js-key-link, .ghx-parent-key");
@@ -2886,6 +2889,22 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
             }else if(issueNumber.dataset.tmOriginalText != null){
                 issueNumber.textContent = issueNumber.dataset.tmOriginalText;
                 delete issueNumber.dataset.tmTrimmedPrefix;
+            }
+        }
+
+        if(simpleIssueKeyLink){
+            if(simpleIssueKeyLink.dataset.tmOriginalText == null){
+                simpleIssueKeyLink.dataset.tmOriginalText = simpleIssueKeyLink.textContent;
+            }
+
+            if(isFeatureEnabled("optimizeIssueIds")){
+                if(simpleIssueKeyLink.dataset.tmTrimmedPrefix !== "true"){
+                    simpleIssueKeyLink.textContent = simpleIssueKeyLink.textContent.replace(/^[A-Z][A-Z0-9]*-\s*/i, "");
+                    simpleIssueKeyLink.dataset.tmTrimmedPrefix = "true";
+                }
+            }else if(simpleIssueKeyLink.dataset.tmOriginalText != null){
+                simpleIssueKeyLink.textContent = simpleIssueKeyLink.dataset.tmOriginalText;
+                delete simpleIssueKeyLink.dataset.tmTrimmedPrefix;
             }
         }
 
