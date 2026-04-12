@@ -259,6 +259,24 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:focus{
     text-decoration:none;
 }
 
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .tm-resolved-issue-key,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-issue-key,
+body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key{
+    background:#dcfff1;
+    color:#216e4e;
+}
+
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .tm-resolved-issue-key:hover,
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .tm-resolved-issue-key:focus,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-issue-key:hover,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-issue-key:focus,
+body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key:hover,
+body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key:focus{
+    background:#baf3db;
+    color:#164b35;
+    text-decoration:none;
+}
+
 .tm-default-backlog-expander svg{
     display:block;
     transition:transform .15s ease;
@@ -2832,10 +2850,18 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
 
         fields.classList.add("tm-issue-key-layout");
 
+        const issueKey = fields.closest("[data-issue-key]")?.dataset.issueKey || "";
+        const isResolved = Boolean(cache.get(issueKey)?.resolved);
+
         const projectKey = fields.querySelector(".ghx-key-link-project-key");
         const issueNumber = fields.querySelector(".ghx-key-link-issue-num");
         const summary = fields.querySelector(".ghx-summary");
         const summaryInner = summary?.querySelector(".ghx-inner") || summary;
+        const keyLinks = fields.querySelectorAll(".ghx-key .ghx-key-link, .ghx-key .js-key-link, .ghx-parent-key");
+
+        keyLinks.forEach(link=>{
+            link.classList.toggle("tm-resolved-issue-key", isResolved);
+        });
 
         if(projectKey){
             if(projectKey.dataset.tmOriginalDisplay == null){
@@ -2876,6 +2902,12 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
             node.style.removeProperty("color");
             node.style.removeProperty("text-transform");
         });
+    });
+
+    scope.querySelectorAll(".ghx-swimlane-header[data-issue-key] .ghx-parent-key").forEach(link=>{
+
+        const issueKey = link.closest(".ghx-swimlane-header")?.dataset.issueKey || "";
+        link.classList.toggle("tm-resolved-issue-key", Boolean(cache.get(issueKey)?.resolved));
     });
 }
 
