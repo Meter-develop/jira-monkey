@@ -71,7 +71,7 @@ const FEATURE_DEFINITIONS = [
     {
         key: "enableFocusModeShortcut",
         label: "Enable focus shortcut",
-        description: "Press B to toggle focus mode on boards and issue navigator pages."
+        description: "Press B to cycle between normal view, hiding the left/top panels, and full focus mode."
     },
     {
         key: "sortSwimlanes",
@@ -362,6 +362,13 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     margin-top:2px;
 }
 
+.tm-settings-label-row{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+}
+
 .tm-settings-label{
     display:block;
     font-size:12px;
@@ -369,12 +376,25 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     color:#172b4d;
 }
 
-.tm-settings-description{
-    display:block;
-    margin-top:2px;
-    font-size:11px;
-    line-height:1.35;
+.tm-settings-tooltip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:15px;
+    height:15px;
+    border-radius:999px;
+    background:#f1f2f4;
     color:#5e6c84;
+    font-size:10px;
+    font-weight:700;
+    line-height:1;
+    cursor:help;
+    user-select:none;
+}
+
+.tm-settings-tooltip:focus{
+    outline:2px solid #4c9aff;
+    outline-offset:2px;
 }
 
 .tm-settings-actions{
@@ -496,9 +516,9 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     background:#e8f5e9 !important;
 }
 
-body.tm-focus-mode #ghx-detail-view,
-body.tm-focus-mode #ghx-detail-contents,
-body.tm-focus-mode #addcomment{
+body.tm-focus-mode-full #ghx-detail-view,
+body.tm-focus-mode-full #ghx-detail-contents,
+body.tm-focus-mode-full #addcomment{
     width:0 !important;
     min-width:0 !important;
     display:none !important;
@@ -534,7 +554,10 @@ let settingsUiInstalled = false;
 let settingsPanelOpen = false;
 let settingsUiTimer = 0;
 let focusShortcutInstalled = false;
-let focusMode = false;
+const FOCUS_MODE_OFF = 0;
+const FOCUS_MODE_PARTIAL = 1;
+const FOCUS_MODE_FULL = 2;
+let focusMode = FOCUS_MODE_OFF;
 let lastFocusPanelWidth = 400;
 let currentUserInfo = null;
 let currentUserInfoPromise = null;
@@ -875,17 +898,43 @@ function unlockFocusResize(){
 
 function syncFocusModeState(){
 
-    if(!focusMode) return;
+    const isFocusActive = focusMode !== FOCUS_MODE_OFF;
+    const isFullFocus = focusMode === FOCUS_MODE_FULL;
 
-    document.body?.classList.add("tm-focus-mode");
+    document.body?.classList.toggle("tm-focus-mode", isFocusActive);
+    document.body?.classList.toggle("tm-focus-mode-full", isFullFocus);
 
     const panel = getBoardPanel();
 
-    if(panel){
+    if(panel && isFullFocus){
         panel.style.width = "0px";
+    }else if(panel && panel.style.width === "0px"){
+        panel.style.width = `${lastFocusPanelWidth}px`;
     }
 
     unlockFocusResize();
+}
+
+function setFocusMode(nextFocusMode){
+
+    const normalizedFocusMode = Math.max(FOCUS_MODE_OFF, Math.min(FOCUS_MODE_FULL, Number(nextFocusMode) || FOCUS_MODE_OFF));
+    const previousFocusMode = focusMode;
+    const panel = getBoardPanel();
+
+    if(previousFocusMode !== FOCUS_MODE_FULL && normalizedFocusMode === FOCUS_MODE_FULL && panel){
+        lastFocusPanelWidth = panel.offsetWidth || lastFocusPanelWidth;
+    }
+
+    focusMode = normalizedFocusMode;
+    syncFocusModeState();
+
+    if(previousFocusMode !== FOCUS_MODE_OFF && normalizedFocusMode === FOCUS_MODE_OFF && panel){
+        panel.style.width = `${lastFocusPanelWidth}px`;
+    }
+
+    if(Boolean(previousFocusMode) !== Boolean(normalizedFocusMode)){
+        toggleBoardHeader();
+    }
 }
 
 function toggleBoardHeader(){
@@ -899,21 +948,13 @@ function toggleBoardHeader(){
 
 function toggleFocusMode(){
 
-    const panel = getBoardPanel();
+    const nextFocusMode = focusMode === FOCUS_MODE_OFF
+        ? FOCUS_MODE_PARTIAL
+        : focusMode === FOCUS_MODE_PARTIAL
+            ? FOCUS_MODE_FULL
+            : FOCUS_MODE_OFF;
 
-    if(!focusMode && panel){
-        lastFocusPanelWidth = panel.offsetWidth || lastFocusPanelWidth;
-    }
-
-    focusMode = !focusMode;
-    document.body?.classList.toggle("tm-focus-mode", focusMode);
-
-    if(!focusMode && panel){
-        panel.style.width = `${lastFocusPanelWidth}px`;
-    }
-
-    unlockFocusResize();
-    toggleBoardHeader();
+    setFocusMode(nextFocusMode);
 }
 
 function installFocusShortcut(){
@@ -1275,7 +1316,7 @@ function resetStoredSettings(){
     userConfig = {};
     currentUserInfo = null;
     currentUserInfoPromise = null;
-    focusMode = false;
+    setFocusMode(FOCUS_MODE_OFF);
     closeSettingsPanel();
     applyImmediateFeatureState();
 
@@ -1345,6 +1386,16 @@ function formatLoadedScriptVersion(info){
     }
 
     return "unknown";
+}
+
+function escapeHtml(value){
+
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
 function renderLoadedScriptMeta(){
@@ -1464,13 +1515,7 @@ function applyImmediateFeatureState(){
         closeSettingsPanel();
 
         if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
-            focusMode = false;
-            document.body?.classList.remove("tm-focus-mode");
-
-            const panel = getBoardPanel();
-            if(panel){
-                panel.style.width = `${lastFocusPanelWidth}px`;
-            }
+            setFocusMode(FOCUS_MODE_OFF);
         }else if(focusMode){
             syncFocusModeState();
         }
@@ -1509,13 +1554,7 @@ function applyImmediateFeatureState(){
     }
 
     if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
-        focusMode = false;
-        document.body?.classList.remove("tm-focus-mode");
-
-        const panel = getBoardPanel();
-        if(panel){
-            panel.style.width = `${lastFocusPanelWidth}px`;
-        }
+        setFocusMode(FOCUS_MODE_OFF);
     }else if(focusMode){
         syncFocusModeState();
     }
@@ -1599,9 +1638,9 @@ function renderSettingsPanel(panel){
             ${FEATURE_DEFINITIONS.map(feature => `
                 <label class="tm-settings-option">
                     <input type="checkbox" data-tm-setting="${feature.key}" ${isFeatureEnabled(feature.key) ? "checked" : ""}>
-                    <span>
-                        <span class="tm-settings-label">${feature.label}${feature.requiresReload ? '<span class="tm-settings-reload-chip">reload</span>' : ""}</span>
-                        <span class="tm-settings-description">${feature.description}</span>
+                    <span class="tm-settings-label-row">
+                        <span class="tm-settings-label">${escapeHtml(feature.label)}${feature.requiresReload ? '<span class="tm-settings-reload-chip">reload</span>' : ""}</span>
+                        <span class="tm-settings-tooltip" tabindex="0" title="${escapeHtml(feature.description)}" aria-label="${escapeHtml(`${feature.label}: ${feature.description}`)}">?</span>
                     </span>
                 </label>
             `).join("")}

@@ -21,7 +21,10 @@ if(window.__tmJiraBoardSuiteInstalled) return;
 
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 let focusShortcutInstalled = false;
-let focusMode = false;
+const FOCUS_MODE_OFF = 0;
+const FOCUS_MODE_PARTIAL = 1;
+const FOCUS_MODE_FULL = 2;
+let focusMode = FOCUS_MODE_OFF;
 let stylesInstalled = false;
 
 function installStyles(){
@@ -31,9 +34,9 @@ function installStyles(){
     stylesInstalled = true;
 
     const styles = `
-body.tm-focus-mode #ghx-detail-view,
-body.tm-focus-mode #ghx-detail-contents,
-body.tm-focus-mode #addcomment{
+body.tm-focus-mode-full #ghx-detail-view,
+body.tm-focus-mode-full #ghx-detail-contents,
+body.tm-focus-mode-full #addcomment{
     width:0 !important;
     min-width:0 !important;
     display:none !important;
@@ -80,7 +83,8 @@ function isFocusShortcutEnabled(){
 
 function syncFocusModeState(){
 
-    document.body?.classList.toggle("tm-focus-mode", focusMode);
+    document.body?.classList.toggle("tm-focus-mode", focusMode !== FOCUS_MODE_OFF);
+    document.body?.classList.toggle("tm-focus-mode-full", focusMode === FOCUS_MODE_FULL);
 }
 
 function toggleFocusMode(){
@@ -89,7 +93,11 @@ function toggleFocusMode(){
         installStyles();
     }
 
-    focusMode = !focusMode;
+    focusMode = focusMode === FOCUS_MODE_OFF
+        ? FOCUS_MODE_PARTIAL
+        : focusMode === FOCUS_MODE_PARTIAL
+            ? FOCUS_MODE_FULL
+            : FOCUS_MODE_OFF;
     syncFocusModeState();
 }
 
@@ -127,7 +135,7 @@ function installStorageSync(){
         if(event.key !== SETTINGS_STORAGE_KEY) return;
 
         if(!isFocusShortcutEnabled() && focusMode){
-            focusMode = false;
+            focusMode = FOCUS_MODE_OFF;
             syncFocusModeState();
         }
     });
