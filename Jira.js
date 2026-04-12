@@ -150,7 +150,9 @@ GM_addStyle(`
 }
 
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link,
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .js-key-link,
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .js-key-link,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     display:inline-flex;
     align-items:center;
@@ -246,8 +248,12 @@ body.tm-feature-assignee-names.tm-jira-board-view .ghx-issue-content .aui-avatar
 
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link:hover,
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link:focus,
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .js-key-link:hover,
+body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .js-key-link:focus,
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link:hover,
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link:focus,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .js-key-link:hover,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .js-key-link:focus,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:hover,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:focus{
     text-decoration:none;
@@ -2000,6 +2006,78 @@ function enhanceDefaultBacklogSections(scope = getBoardEnhancementScope()){
     });
 }
 
+function getSprintContainers(scope = getBoardEnhancementScope()){
+
+    return [...scope.querySelectorAll(".ghx-backlog-container.js-sprint-container")];
+}
+
+function getSprintHeader(container){
+
+    return container?.querySelector(":scope > .ghx-backlog-header.js-sprint-header") || null;
+}
+
+function getSprintExpanderButton(container){
+
+    return getSprintHeader(container)?.querySelector(".ghx-expander.ghx-heading-expander") || null;
+}
+
+function isSprintContainerCollapsed(container){
+
+    const button = getSprintExpanderButton(container);
+
+    return Boolean(
+        container?.classList.contains("ghx-closed")
+        || button?.getAttribute("aria-expanded") === "false"
+    );
+}
+
+function setSprintContainerCollapsed(container, collapsed){
+
+    const button = getSprintExpanderButton(container);
+
+    if(!button || isSprintContainerCollapsed(container) === collapsed) return;
+
+    button.click();
+}
+
+function setAllSprintAndBacklogCollapsed(collapsed, scope = document){
+
+    getSprintContainers(scope).forEach(container=>{
+        setSprintContainerCollapsed(container, collapsed);
+    });
+
+    getDefaultBacklogContainers(scope).forEach(container=>{
+        setDefaultBacklogCollapsed(container, collapsed);
+    });
+
+    writeDefaultBacklogCollapseState(collapsed);
+}
+
+function handleExpanderCtrlClick(event){
+
+    if(!event.ctrlKey) return;
+
+    const button = event.target?.closest?.(".ghx-expander.ghx-heading-expander");
+
+    if(!button) return;
+
+    const container = button.closest(".ghx-backlog-container");
+    const isDefaultBacklogButton = button.classList.contains("tm-default-backlog-expander");
+    const isSprintButton = Boolean(button.closest(".js-sprint-header"));
+
+    if(!container || (!isDefaultBacklogButton && !isSprintButton)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+
+    const nextCollapsed = isDefaultBacklogButton
+        ? !container.classList.contains("tm-default-backlog-collapsed")
+        : !isSprintContainerCollapsed(container);
+
+    setAllSprintAndBacklogCollapsed(nextCollapsed, document);
+}
+
 function getIssueUpdatedTime(key){
 
     const timestamp = Date.parse(cache.get(key)?.updated || "");
@@ -2559,6 +2637,7 @@ function installHooks(){
 
     window.addEventListener("popstate", handleNavigation);
     window.addEventListener("hashchange", handleNavigation);
+    document.addEventListener("click", handleExpanderCtrlClick, true);
 
     const guardBoardInteraction = event=>{
 
@@ -2739,11 +2818,13 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
 
     scope.querySelectorAll(".ghx-issue-content").forEach(content=>{
 
+        const keyRow = content.querySelector(".ghx-row") || content;
+
         if(
-            content.querySelector(".ghx-key-link-project-key, .ghx-key-link-issue-num")
-            && content.querySelector(".ghx-summary")
+            keyRow.querySelector(".ghx-key-link-project-key, .ghx-key-link-issue-num, .ghx-key .ghx-key-link, .ghx-key .js-key-link")
+            && keyRow.querySelector(".ghx-summary")
         ){
-            fieldContainers.add(content);
+            fieldContainers.add(keyRow);
         }
     });
 
