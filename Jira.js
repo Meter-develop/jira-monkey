@@ -19,6 +19,7 @@ const REPOSITORY_URL = "https://github.com/Meter-develop/jira-monkey";
 const SCRIPT_URL = "https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/Jira.js";
 const SETTINGS_STORAGE_KEY = "tm-jira-perfect-sorting-settings";
 const USER_CONFIG_STORAGE_KEY = "tm-jira-board-suite-user-config";
+const DEFAULT_BACKLOG_COLLAPSE_STORAGE_KEY = "tm-jira-default-backlog-collapse-v1";
 const LOADER_FORCE_REFRESH_FLAG_KEY = "tm-bootstrap-force-refresh-once";
 const LOADER_UPDATE_API_NAME = "__tmBootstrapCheckForUpdatesNow";
 const LOADER_UPDATE_EVENT_NAME = "tm-bootstrap-check-for-updates-now";
@@ -133,20 +134,23 @@ GM_addStyle(`
     line-height:1.2;
 }
 
-.ghx-issue-fields{
+.ghx-issue-fields,
+.tm-issue-key-layout{
     display:flex;
     align-items:baseline;
     gap:6px;
     flex-wrap:nowrap;
 }
 
-.ghx-issue-fields .ghx-key{
+.ghx-issue-fields .ghx-key,
+.tm-issue-key-layout .ghx-key{
     flex:0 0 auto;
     display:flex;
     align-items:center;
 }
 
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     display:inline-flex;
     align-items:center;
@@ -163,14 +167,16 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     text-decoration:none;
 }
 
-.ghx-issue-fields .ghx-summary{
+.ghx-issue-fields .ghx-summary,
+.tm-issue-key-layout .ghx-summary{
     flex:1 1 auto;
     min-width:0;
     display:flex;
     align-items:baseline;
 }
 
-.ghx-issue-fields .ghx-summary .ghx-inner{
+.ghx-issue-fields .ghx-summary .ghx-inner,
+.tm-issue-key-layout .ghx-summary .ghx-inner{
     display:block;
     width:100%;
     overflow:hidden;
@@ -240,9 +246,20 @@ body.tm-feature-assignee-names.tm-jira-board-view .ghx-issue-content .aui-avatar
 
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link:hover,
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .ghx-key-link:focus,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link:hover,
+body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link:focus,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:hover,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:focus{
     text-decoration:none;
+}
+
+.tm-default-backlog-expander svg{
+    display:block;
+    transition:transform .15s ease;
+}
+
+.tm-default-backlog-container.tm-default-backlog-collapsed .tm-default-backlog-expander svg{
+    transform:rotate(-90deg);
 }
 
 .tm-subtask-card .ghx-card-footer .ghx-type,
@@ -374,27 +391,6 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     font-size:12px;
     font-weight:600;
     color:#172b4d;
-}
-
-.tm-settings-tooltip{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    width:15px;
-    height:15px;
-    border-radius:999px;
-    background:#f1f2f4;
-    color:#5e6c84;
-    font-size:10px;
-    font-weight:700;
-    line-height:1;
-    cursor:help;
-    user-select:none;
-}
-
-.tm-settings-tooltip:focus{
-    outline:2px solid #4c9aff;
-    outline-offset:2px;
 }
 
 .tm-settings-actions{
@@ -1549,6 +1545,7 @@ function applyImmediateFeatureState(){
 
     if(hasVisibleJiraIssues()){
         syncIssueFieldTypography(enhancementScope);
+        enhanceDefaultBacklogSections(enhancementScope);
         applyAssigneeEnhancements(enhancementScope);
         highlightCurrentUserIssueCards(enhancementScope);
     }
@@ -1638,9 +1635,8 @@ function renderSettingsPanel(panel){
             ${FEATURE_DEFINITIONS.map(feature => `
                 <label class="tm-settings-option">
                     <input type="checkbox" data-tm-setting="${feature.key}" ${isFeatureEnabled(feature.key) ? "checked" : ""}>
-                    <span class="tm-settings-label-row">
+                    <span class="tm-settings-label-row" title="${escapeHtml(feature.description)}" aria-label="${escapeHtml(`${feature.label}: ${feature.description}`)}">
                         <span class="tm-settings-label">${escapeHtml(feature.label)}${feature.requiresReload ? '<span class="tm-settings-reload-chip">reload</span>' : ""}</span>
-                        <span class="tm-settings-tooltip" tabindex="0" title="${escapeHtml(feature.description)}" aria-label="${escapeHtml(`${feature.label}: ${feature.description}`)}">?</span>
                     </span>
                 </label>
             `).join("")}
@@ -1849,6 +1845,159 @@ function getStoryPointsValue(value){
 
     const points = Number(value);
     return Number.isFinite(points) ? points : 0;
+}
+
+function getDefaultBacklogStorageKey(){
+
+    return getRapidViewId() || location.pathname || "default";
+}
+
+function readDefaultBacklogCollapseStates(){
+
+    try{
+        const parsed = JSON.parse(window.localStorage.getItem(DEFAULT_BACKLOG_COLLAPSE_STORAGE_KEY) || "{}");
+        return parsed && typeof parsed === "object"
+            ? parsed
+            : {};
+    }catch{
+        return {};
+    }
+}
+
+function writeDefaultBacklogCollapseState(collapsed){
+
+    const storageKey = getDefaultBacklogStorageKey();
+    const states = readDefaultBacklogCollapseStates();
+
+    if(collapsed){
+        states[storageKey] = true;
+    }else{
+        delete states[storageKey];
+    }
+
+    try{
+        window.localStorage.setItem(DEFAULT_BACKLOG_COLLAPSE_STORAGE_KEY, JSON.stringify(states));
+    }catch{}
+}
+
+function isDefaultBacklogCollapsed(){
+
+    return Boolean(readDefaultBacklogCollapseStates()[getDefaultBacklogStorageKey()]);
+}
+
+function getDefaultBacklogContainers(scope = getBoardEnhancementScope()){
+
+    const containers = new Set();
+
+    scope.querySelectorAll(".ghx-backlog-header.js-marker-backlog-header").forEach(header=>{
+
+        if(header.classList.contains("js-sprint-header") || header.hasAttribute("data-sprint-id")) return;
+
+        const container = header.closest(".ghx-backlog-container");
+
+        if(container){
+            containers.add(container);
+        }
+    });
+
+    return [...containers];
+}
+
+function getDefaultBacklogHeader(container){
+
+    return container?.querySelector(":scope > .ghx-backlog-header.js-marker-backlog-header:not(.js-sprint-header)") || null;
+}
+
+function createDefaultBacklogExpanderButton(){
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "aui-button ghx-expander ghx-heading-expander tm-default-backlog-expander";
+    button.setAttribute("aria-expanded", "true");
+    button.setAttribute("title", "Toggle backlog visibility");
+    button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><g fill="none" fill-rule="evenodd"><path d="M3.29175 4.793c-.389.392-.389 1.027 0 1.419l2.939 2.965c.218.215.5.322.779.322s.556-.107.769-.322l2.93-2.955c.388-.392.388-1.027 0-1.419-.389-.392-1.018-.392-1.406 0l-2.298 2.317-2.307-2.327c-.194-.195-.449-.293-.703-.293-.255 0-.51.098-.703.293z" fill="var(--ds-icon-subtle, #344563)"></path></g></svg>';
+
+    return button;
+}
+
+function setDefaultBacklogCollapsed(container, collapsed){
+
+    const header = getDefaultBacklogHeader(container);
+    const button = header?.querySelector(".tm-default-backlog-expander");
+
+    container.classList.add("tm-default-backlog-container");
+    container.classList.toggle("tm-default-backlog-collapsed", collapsed);
+    container.classList.toggle("ghx-closed", collapsed);
+    container.classList.toggle("ghx-open", !collapsed);
+
+    [...container.children].forEach(child=>{
+        if(child === header) return;
+
+        child.hidden = collapsed;
+    });
+
+    if(button){
+        button.setAttribute("aria-expanded", String(!collapsed));
+        button.setAttribute("title", collapsed ? "Expand backlog visibility" : "Collapse backlog visibility");
+    }
+}
+
+function syncDefaultBacklogIssueCount(container){
+
+    const header = getDefaultBacklogHeader(container);
+    const issueCount = header?.querySelector(".ghx-issue-count");
+
+    if(!issueCount) return;
+
+    const issueTotal = new Set(
+        [...container.querySelectorAll(".ghx-issue[data-issue-key], .js-issue[data-issue-key]")]
+            .map(issue => issue.dataset.issueKey)
+            .filter(Boolean)
+    ).size;
+
+    const textNode = [...issueCount.childNodes].find(node => node.nodeType === Node.TEXT_NODE);
+
+    if(textNode){
+        textNode.textContent = `${issueTotal} issue${issueTotal === 1 ? "" : "s"} - `;
+    }
+}
+
+function enhanceDefaultBacklogSections(scope = getBoardEnhancementScope()){
+
+    const collapsed = isDefaultBacklogCollapsed();
+
+    getDefaultBacklogContainers(scope).forEach(container=>{
+
+        const header = getDefaultBacklogHeader(container);
+
+        if(!header) return;
+
+        let expander = header.querySelector(".tm-default-backlog-expander");
+
+        if(!expander){
+            expander = createDefaultBacklogExpanderButton();
+            expander.addEventListener("click", event=>{
+                event.preventDefault();
+                event.stopPropagation();
+
+                const nextCollapsed = !container.classList.contains("tm-default-backlog-collapsed");
+
+                setDefaultBacklogCollapsed(container, nextCollapsed);
+                writeDefaultBacklogCollapseState(nextCollapsed);
+            });
+
+            const name = header.querySelector(":scope > .ghx-name");
+
+            if(name){
+                header.insertBefore(expander, name);
+            }else{
+                header.insertBefore(expander, header.firstChild);
+            }
+        }
+
+        syncDefaultBacklogIssueCount(container);
+        setDefaultBacklogCollapsed(container, collapsed);
+    });
 }
 
 function getIssueUpdatedTime(key){
@@ -2586,7 +2735,21 @@ function trimDisplayedParentKeys(scope = getBoardEnhancementScope()){
 
 function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
 
-    scope.querySelectorAll(".ghx-issue-fields").forEach(fields=>{
+    const fieldContainers = new Set(scope.querySelectorAll(".ghx-issue-fields"));
+
+    scope.querySelectorAll(".ghx-issue-content").forEach(content=>{
+
+        if(
+            content.querySelector(".ghx-key-link-project-key, .ghx-key-link-issue-num")
+            && content.querySelector(".ghx-summary")
+        ){
+            fieldContainers.add(content);
+        }
+    });
+
+    fieldContainers.forEach(fields=>{
+
+        fields.classList.add("tm-issue-key-layout");
 
         const projectKey = fields.querySelector(".ghx-key-link-project-key");
         const issueNumber = fields.querySelector(".ghx-key-link-issue-num");
@@ -2921,6 +3084,7 @@ async function applyBoardEnhancements(){
         }
 
         syncIssueFieldTypography(enhancementScope);
+        enhanceDefaultBacklogSections(enhancementScope);
 
         if(pool && isFeatureEnabled("showStoryPoints")){
             addPoints();
