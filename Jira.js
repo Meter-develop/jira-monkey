@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.16
+// @version      5.17
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -35,6 +35,7 @@ const FEATURE_DEFAULTS = {
     highlightCurrentUserIssues: true,
     enableAvatarQuickActions: true,
     enableFocusModeShortcut: true,
+    enableBacklogSearch: true,
     sortSwimlanes: true,
     sortDoneSubtasks: true
 };
@@ -73,6 +74,11 @@ const FEATURE_DEFINITIONS = [
         key: "enableFocusModeShortcut",
         label: "Enable focus shortcut",
         description: "Press B to cycle between normal view, hiding the left/top panels, and full focus mode."
+    },
+    {
+        key: "enableBacklogSearch",
+        label: "Backlog search",
+        description: "Adds the custom backlog search beside the settings button and hides Jira's built-in backlog search box."
     },
     {
         key: "sortSwimlanes",
@@ -303,26 +309,46 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     display:inline-flex;
     flex:0 0 auto;
     align-items:center;
+    align-self:center;
     margin-left:8px;
     padding:0;
     list-style:none;
     vertical-align:middle;
+    line-height:1;
 }
 
 .tm-backlog-search-slot{
     display:inline-flex;
     flex:0 0 auto;
     align-items:center;
+    align-self:center;
     margin-left:8px;
     padding:0;
     list-style:none;
     vertical-align:middle;
+    line-height:1;
+}
+
+.tm-settings-slot.ghx-quickfilter,
+.tm-backlog-search-slot.ghx-quickfilter{
+    float:none;
+    min-height:30px;
+    margin-top:0;
+    margin-bottom:0;
+}
+
+.tm-settings-slot.ghx-quickfilter{
+    margin-right:0;
+}
+
+.tm-backlog-search-slot.ghx-quickfilter{
+    margin-right:0;
 }
 
 .tm-backlog-search-input{
     width:220px;
     max-width:min(32vw, 320px);
-    min-height:28px;
+    min-height:30px;
     padding:4px 10px;
     border:1px solid #dfe1e6;
     border-radius:6px;
@@ -330,6 +356,8 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     color:#172b4d;
     font-size:12px;
     line-height:1.4;
+    margin:0;
+    vertical-align:middle;
 }
 
 .tm-backlog-search-input::placeholder{
@@ -360,8 +388,8 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     align-items:center;
     justify-content:center;
     width:auto;
-    height:auto;
-    padding:2px 4px;
+    min-height:30px;
+    padding:0 4px;
     border:none;
     border-radius:0;
     background:transparent;
@@ -404,7 +432,13 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 
 .tm-settings-button .aui-icon{
     margin:0;
+    display:block;
     color:inherit;
+}
+
+body.tm-feature-backlog-search.tm-jira-backlog-view #ghx-backlog-search,
+body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
+    display:none !important;
 }
 
 .tm-settings-panel{
@@ -1252,7 +1286,7 @@ function normalizeBacklogSearchTerm(value){
 
 function hasBacklogSearchQuery(){
 
-    return Boolean(normalizeBacklogSearchTerm(backlogSearchQuery));
+    return isFeatureEnabled("enableBacklogSearch") && Boolean(normalizeBacklogSearchTerm(backlogSearchQuery));
 }
 
 function getBacklogSearchSlots(){
@@ -1326,7 +1360,7 @@ function applyBacklogSearchFilter(scope = getBoardEnhancementScope()){
 
     clearBacklogSearchFiltering(scope);
 
-    if(!isBacklogViewActive() || !hasBoardEnhancementContext()){
+    if(!isBacklogViewActive() || !hasBoardEnhancementContext() || !isFeatureEnabled("enableBacklogSearch")){
         return;
     }
 
@@ -1360,11 +1394,7 @@ function createQuickFiltersSlot(container, className){
             : "span";
     const slot = document.createElement(slotTagName);
 
-    slot.className = className;
-
-    if(slot.tagName === "DD"){
-        slot.classList.add("ghx-quickfilter");
-    }
+    slot.className = `${className} ghx-quickfilter`;
 
     return slot;
 }
@@ -1433,6 +1463,9 @@ function loadFeatureSettings(){
             enableFocusModeShortcut: typeof parsed?.enableFocusModeShortcut === "boolean"
                 ? parsed.enableFocusModeShortcut
                 : FEATURE_DEFAULTS.enableFocusModeShortcut,
+            enableBacklogSearch: typeof parsed?.enableBacklogSearch === "boolean"
+                ? parsed.enableBacklogSearch
+                : FEATURE_DEFAULTS.enableBacklogSearch,
             sortSwimlanes: typeof parsed?.sortSwimlanes === "boolean"
                 ? parsed.sortSwimlanes
                 : FEATURE_DEFAULTS.sortSwimlanes,
@@ -1633,6 +1666,7 @@ function applyFeatureClasses(){
 
     document.body.classList.toggle("tm-feature-assignee-names", hasBoardContext && isFeatureEnabled("showAssigneeNames"));
     document.body.classList.toggle("tm-feature-optimize-issue-ids", hasBoardContext && isFeatureEnabled("optimizeIssueIds"));
+    document.body.classList.toggle("tm-feature-backlog-search", hasBoardContext && isFeatureEnabled("enableBacklogSearch"));
     document.body.classList.toggle("tm-jira-board-view", isBoardViewActive());
     document.body.classList.toggle("tm-jira-backlog-view", isBacklogViewActive());
 }
@@ -1865,6 +1899,7 @@ function renderSettingsPanel(panel){
             featureSettings[key] = target.checked;
             saveFeatureSettings();
             applyImmediateFeatureState();
+            ensureSettingsUi();
 
             if(definition?.requiresReload){
                 window.setTimeout(()=>{
@@ -1962,7 +1997,7 @@ function removeStaleSettingsSlots(container){
 function removeStaleBacklogSearchSlots(container){
 
     getBacklogSearchSlots().forEach(slot=>{
-        if(slot.parentElement !== container || !isBacklogViewActive()){
+        if(slot.parentElement !== container || !isBacklogViewActive() || !isFeatureEnabled("enableBacklogSearch")){
             slot.remove();
         }
     });
@@ -1972,7 +2007,8 @@ function ensureBacklogSearchUi(container, settingsSlot){
 
     removeStaleBacklogSearchSlots(container);
 
-    if(!isBacklogViewActive()){
+    if(!isBacklogViewActive() || !isFeatureEnabled("enableBacklogSearch")){
+        container.querySelector(".tm-backlog-search-slot")?.remove();
         clearBacklogSearchFiltering(document);
         return;
     }
