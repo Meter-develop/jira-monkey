@@ -429,6 +429,14 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
     order:1;
 }
 
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row{
+    align-items:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row > *{
+    align-self:center;
+}
+
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate{
     order:2;
     flex:0 0 auto;
@@ -467,6 +475,7 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
     order:4;
     flex:1 1 auto;
     min-width:0;
+    align-items:center;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta{
@@ -530,6 +539,7 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-hover-ov
     color:#172b4d;
     font-size:11px;
     line-height:1.35;
+    pointer-events:none;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-hover-details:hover .tm-backlog-hover-overlay,
@@ -1791,7 +1801,7 @@ function restoreMovedBacklogNodes(scope = document){
     });
 }
 
-function moveBacklogNodeToRightMeta(node, container){
+function moveBacklogNodeToRightMeta(node, container, beforeNode = null){
 
     if(!node?.isConnected || !container?.isConnected || node === container || container.contains(node)) return;
     if(!node.parentNode) return;
@@ -1810,10 +1820,15 @@ function moveBacklogNodeToRightMeta(node, container){
     }
 
     node.classList.add("tm-backlog-moved-node");
-    container.appendChild(node);
+
+    if(beforeNode?.parentNode === container){
+        container.insertBefore(node, beforeNode);
+    }else{
+        container.appendChild(node);
+    }
 }
 
-function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes){
+function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes, estimateNode = null){
 
     const nodes = [];
     const seen = new Set();
@@ -1824,7 +1839,7 @@ function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNod
 
         const node = candidate.closest(".ghx-extra-field, .ghx-avatar, .ghx-end, button, a") || candidate;
 
-        if(!node?.isConnected || node === fixedVersionLabel || node === summaryNode || seen.has(node)) return;
+        if(!node?.isConnected || node === fixedVersionLabel || node === summaryNode || node === estimateNode || seen.has(node)) return;
 
         seen.add(node);
         nodes.push(node);
@@ -1898,7 +1913,8 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
         restoreMovedBacklogNodes(card);
 
         const keyRow = card.querySelector(".ghx-issue-content .ghx-row.tm-issue-key-layout, .ghx-issue-content .ghx-row");
-        const estimate = keyRow?.querySelector(".ghx-end.ghx-estimate");
+        const summaryNode = keyRow?.querySelector(".ghx-summary") || null;
+        const estimate = card.querySelector(".ghx-issue-content .ghx-end.ghx-estimate, .ghx-issue-content .ghx-estimate") || null;
         const keyNode = keyRow?.querySelector(".ghx-key");
         const fixedVersionLabel = keyRow?.querySelector(".ghx-label-0");
         const extraFields = card.querySelector(".ghx-plan-extra-fields");
@@ -1978,7 +1994,17 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             card.classList.remove("tm-backlog-has-ready-status");
         }
 
-        const rightMetaNodes = getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes);
+        if(estimate && keyNode?.parentNode === keyRow){
+            const estimateReference = readyInline?.parentNode === keyRow
+                ? readyInline
+                : summaryNode?.parentNode === keyRow
+                    ? summaryNode
+                    : null;
+
+            moveBacklogNodeToRightMeta(estimate, keyRow, estimateReference);
+        }
+
+        const rightMetaNodes = getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes, estimate);
 
         if(rightMetaNodes.length){
             const rightMeta = document.createElement("span");
