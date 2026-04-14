@@ -1857,13 +1857,7 @@ function formatLoadedScriptDate(value){
     return new Date(timestamp).toLocaleString();
 }
 
-function formatLoadedScriptVersion(info){
-
-    const version = String(info?.version || "").trim();
-
-    if(version){
-        return version;
-    }
+function formatLoadedScriptHash(info){
 
     const sourceHash = String(info?.sourceHash || "").trim().toLowerCase();
 
@@ -1887,12 +1881,12 @@ function escapeHtml(value){
 function renderLoadedScriptMeta(){
 
     const info = getLoadedJiraScriptInfo();
-    const version = formatLoadedScriptVersion(info);
+    const sourceHash = formatLoadedScriptHash(info);
     const sourceDate = info?.sourceStoredAt || info?.sourceFetchedAt || info?.loadedAt || 0;
 
     return `
         <div class="tm-settings-meta">
-            <span><strong>Version:</strong> ${version}</span>
+            <span><strong>Hash:</strong> ${sourceHash}</span>
             <span><strong>Date:</strong> ${formatLoadedScriptDate(sourceDate)}</span>
         </div>
     `;

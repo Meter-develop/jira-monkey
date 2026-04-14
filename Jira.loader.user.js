@@ -564,6 +564,34 @@
         return String(getGrantedApis().GM_info?.script?.version || '').trim();
     }
 
+    function normalizeSourceText(value) {
+        return String(value || '')
+            .replace(/\r\n?/g, '\n')
+            .trimEnd();
+    }
+
+    function getInstalledLoaderSource() {
+        const info = getGrantedApis().GM_info;
+        const candidates = [
+            info?.scriptSource,
+            info?.script?.scriptSource,
+            info?.script?.source,
+            info?.source
+        ];
+
+        return candidates.find(value => typeof value === 'string' && value.trim()) || '';
+    }
+
+    async function getInstalledLoaderHash() {
+        const source = normalizeSourceText(getInstalledLoaderSource());
+
+        if (!source) {
+            return '';
+        }
+
+        return sha256Hex(source);
+    }
+
     function compareVersionTokens(leftToken, rightToken) {
         const leftNumber = Number(leftToken);
         const rightNumber = Number(rightToken);
@@ -945,14 +973,21 @@
 
     async function getLoaderSelfUpdateStatus(forceRefresh = false) {
         const record = await fetchLoaderSelfRecord(forceRefresh);
+        record.source = normalizeSourceText(record.source);
+        record.sourceHash = normalizeHash(await ensureRecordHash(record));
+
+        const installedHash = normalizeHash(await getInstalledLoaderHash());
         const installedVersion = getInstalledLoaderVersion();
         const availableVersion = String(record.metadata?.version || '').trim();
-        const hasUpdate = Boolean(availableVersion) && compareVersions(availableVersion, installedVersion) > 0;
+        const hasUpdate = installedHash
+            ? record.sourceHash !== installedHash
+            : Boolean(availableVersion) && compareVersions(availableVersion, installedVersion) > 0;
 
         return {
             hasUpdate,
             installedVersion,
             availableVersion,
+            installedHash,
             record
         };
     }
@@ -970,6 +1005,16 @@
                 {
                     label: 'Available version',
                     value: loaderStatus.availableVersion || '(unknown)',
+                    code: true
+                },
+                {
+                    label: 'Installed hash',
+                    value: formatHashPreview(loaderStatus.installedHash),
+                    code: true
+                },
+                {
+                    label: 'Available hash',
+                    value: formatHashPreview(loaderStatus.record?.sourceHash),
                     code: true
                 },
                 {
