@@ -475,8 +475,9 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-in
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-summary{
     order:4;
-    flex:1 1 auto;
+    flex:0 1 auto;
     min-width:0;
+    max-width:100%;
     align-items:center;
 }
 
@@ -486,7 +487,7 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-me
     display:inline-flex;
     align-items:center;
     gap:6px;
-    margin-left:auto;
+    margin-left:8px;
     min-width:0;
 }
 
@@ -1854,6 +1855,39 @@ function restoreMovedBacklogNodes(scope = document){
     });
 }
 
+function suppressBacklogVisibleTitles(root){
+
+    if(!root?.isConnected) return;
+
+    const nodes = [];
+
+    if(root.matches?.("[title]")){
+        nodes.push(root);
+    }
+
+    root.querySelectorAll?.("[title]").forEach(node=>{
+        nodes.push(node);
+    });
+
+    nodes.forEach(node=>{
+
+        if(node.dataset.tmBacklogOriginalTitle == null){
+            node.dataset.tmBacklogOriginalTitle = node.getAttribute("title") || "";
+        }
+
+        node.removeAttribute("title");
+    });
+}
+
+function restoreBacklogVisibleTitles(scope = document){
+
+    scope.querySelectorAll("[data-tm-backlog-original-title]").forEach(node=>{
+
+        node.setAttribute("title", node.dataset.tmBacklogOriginalTitle || "");
+        delete node.dataset.tmBacklogOriginalTitle;
+    });
+}
+
 function moveBacklogNodeToRightMeta(node, container, beforeNode = null){
 
     if(!node?.isConnected || !container?.isConnected || node === container || container.contains(node)) return;
@@ -1964,6 +1998,7 @@ function resetBacklogCardSimplification(scope = document){
     getBacklogIssueCards(scope).forEach(card=>{
 
         restoreMovedBacklogNodes(card);
+        restoreBacklogVisibleTitles(card);
         card.querySelectorAll(".tm-backlog-settings-trigger").forEach(node=>{
             node.classList.remove("tm-backlog-settings-trigger");
         });
@@ -2067,6 +2102,7 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             }
 
             readyInline.title = readyText;
+            suppressBacklogVisibleTitles(readyInline);
 
             if(estimate?.parentNode === keyRow){
                 keyRow.insertBefore(readyInline, estimate.nextSibling);
@@ -2101,9 +2137,12 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             rightMeta.className = "tm-backlog-right-meta";
             keyRow.appendChild(rightMeta);
             rightMetaNodes.forEach(node=>{
+                suppressBacklogVisibleTitles(node);
                 moveBacklogNodeToRightMeta(node, rightMeta);
             });
         }
+
+        suppressBacklogVisibleTitles(summaryNode);
 
         const previousOverlay = card.querySelector(".tm-backlog-hover-overlay");
 
