@@ -578,6 +578,10 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
     display:none !important;
 }
 
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .ghx-plan-extra-fields{
+    display:none !important;
+}
+
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-hover-overlay{
     position:absolute;
     left:8px;
