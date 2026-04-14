@@ -135,6 +135,21 @@ GM_addStyle(`
 #ghx-pool { opacity: 0; transition: opacity .15s ease; }
 .tm-ready #ghx-pool { opacity: 1; }
 
+body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
+body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
+body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
+body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+
+body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
+body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
+body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
+body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
+    opacity: 1;
+}
+
 :root{
     --tm-issue-badge-bg:#fff4bf;
     --tm-issue-badge-text:#5e4a00;
@@ -2672,6 +2687,10 @@ function applyFeatureClasses(){
     document.body.classList.toggle("tm-feature-simplify-backlog-cards", hasBoardContext && isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive());
     document.body.classList.toggle("tm-jira-board-view", isBoardViewActive());
     document.body.classList.toggle("tm-jira-backlog-view", isBacklogViewActive());
+
+    if(!hasBoardContext || !isBacklogViewActive() || !isFeatureEnabled("simplifyBacklogCards")){
+        document.body.classList.remove("tm-backlog-enhancing", "tm-backlog-ready");
+    }
 }
 
 function removePoints(){
@@ -2747,6 +2766,7 @@ function applyImmediateFeatureState(){
         closeSettingsPanel();
         clearBacklogSearchFiltering(document);
         resetBacklogCardSimplification(document);
+        syncBacklogRenderState(false);
 
         if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
             setFocusMode(FOCUS_MODE_OFF);
@@ -2786,8 +2806,10 @@ function applyImmediateFeatureState(){
 
         if(isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive()){
             syncBacklogCardSimplification(enhancementScope);
+            syncBacklogRenderState(true);
         }else{
             resetBacklogCardSimplification(document);
+            syncBacklogRenderState(false);
         }
 
         enhanceDefaultBacklogSections(enhancementScope);
@@ -3945,6 +3967,21 @@ function markBoardDirty({ hideBoard = false } = {}){
     }
 }
 
+function syncBacklogRenderState(isReady){
+
+    const shouldManageBacklogRender = hasBoardEnhancementContext()
+        && isBacklogViewActive()
+        && isFeatureEnabled("simplifyBacklogCards");
+
+    if(!shouldManageBacklogRender){
+        document.body?.classList.remove("tm-backlog-enhancing", "tm-backlog-ready");
+        return;
+    }
+
+    document.body?.classList.toggle("tm-backlog-enhancing", !isReady);
+    document.body?.classList.toggle("tm-backlog-ready", isReady);
+}
+
 function suppressObserver(ms = 800){
 
     observerIgnoreUntil = Math.max(observerIgnoreUntil, Date.now() + ms);
@@ -3988,6 +4025,7 @@ function handleNavigation(){
 
     startObserver();
     markBoardDirty({ hideBoard: true });
+    syncBacklogRenderState(false);
     scheduleApply(200);
     scheduleEnsureSettingsUi(350);
 }
@@ -4131,9 +4169,22 @@ async function fetchIssue(key){
 
 async function preloadAll(){
 
-    const keys = [...new Set([...getBoardEnhancementScope().querySelectorAll("[data-issue-key]")]
-        .map(e => e.dataset.issueKey)
+    await preloadIssueKeys(getEnhancementIssueKeys());
+}
+
+function getEnhancementIssueKeys(scope = getBoardEnhancementScope()){
+
+    return [...new Set([...scope.querySelectorAll("[data-issue-key]")]
+        .map(node => node.dataset.issueKey)
         .filter(Boolean))];
+}
+
+function getMissingEnhancementIssueKeys(scope = getBoardEnhancementScope()){
+
+    return getEnhancementIssueKeys(scope).filter(key => !cache.has(key) && !inflight.has(key));
+}
+
+async function preloadIssueKeys(keys){
 
     await Promise.all(keys.map(fetchIssue));
 }
@@ -4200,7 +4251,6 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
             && keyRow.querySelector(".ghx-summary")
         ){
             fieldContainers.add(keyRow);
-        }
     });
 
     fieldContainers.forEach(fields=>{
@@ -4536,6 +4586,7 @@ async function applyBoardEnhancements(){
     const pool = document.getElementById("ghx-pool");
     const hasIssues = hasVisibleJiraIssues();
     const enhancementScope = getBoardEnhancementScope();
+    const shouldFastTrackBacklog = !pool && isBacklogViewActive() && isFeatureEnabled("simplifyBacklogCards");
 
     if((!pool && !hasIssues) || isApplying) return;
 
@@ -4544,8 +4595,31 @@ async function applyBoardEnhancements(){
     try{
         syncFeatureSettingsFromStorage();
 
+        const missingIssueKeys = getMissingEnhancementIssueKeys(enhancementScope);
+        const preloadPromise = missingIssueKeys.length
+            ? preloadIssueKeys(missingIssueKeys)
+            : Promise.resolve();
+
+        if(!pool && missingIssueKeys.length){
+            preloadPromise.finally(()=>{
+                if(!hasBoardEnhancementContext() || !isBacklogViewActive()) return;
+                markBoardDirty();
+                scheduleApply(0);
+            });
+        }
+
+        applyFeatureClasses();
+
+        if(shouldFastTrackBacklog){
+            syncIssueFieldTypography(enhancementScope);
+            syncBacklogCardSimplification(enhancementScope);
+            syncBacklogRenderState(true);
+            enhanceDefaultBacklogSections(enhancementScope);
+            applyBacklogSearchFilter(enhancementScope);
+        }
+
         await Promise.all([
-            preloadAll(),
+            pool ? preloadPromise : Promise.resolve(),
             pool ? ensureSprintDates() : Promise.resolve(),
             ensureCurrentUserInfo()
         ]);
@@ -4576,8 +4650,10 @@ async function applyBoardEnhancements(){
 
         if(isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive()){
             syncBacklogCardSimplification(enhancementScope);
+            syncBacklogRenderState(true);
         }else{
             resetBacklogCardSimplification(document);
+            syncBacklogRenderState(false);
         }
 
         enhanceDefaultBacklogSections(enhancementScope);
@@ -4640,6 +4716,7 @@ async function init(){
         scheduleEnsureSettingsUi(350);
 
         if(isRapidBoardPage() && (document.querySelector("#ghx-pool") || hasVisibleJiraIssues())){
+            syncBacklogRenderState(false);
             markBoardDirty();
             scheduleApply(0);
         }
