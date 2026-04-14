@@ -431,6 +431,8 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row{
     align-items:center;
+    width:100%;
+    min-width:0;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row > *{
@@ -514,6 +516,49 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card{
     position:relative;
+    display:flex;
+    align-items:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .ghx-issue-content{
+    display:flex;
+    align-items:center;
+    width:100%;
+    min-width:0;
+    min-height:100%;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger{
+    position:relative;
+    display:inline-flex !important;
+    align-items:center;
+    justify-content:center;
+    width:18px;
+    min-width:18px;
+    height:18px;
+    font-size:0 !important;
+    line-height:1;
+    color:#5e6c84;
+    text-decoration:none;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger > *{
+    display:none !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger::before,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger.aui-iconfont-more::before{
+    content:"⚙" !important;
+    display:block;
+    font-size:14px;
+    line-height:1;
+    color:currentColor;
+    font-family:inherit !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger:hover,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-settings-trigger:focus{
+    color:#172b4d;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .tm-backlog-hidden-source,
@@ -1828,6 +1873,37 @@ function moveBacklogNodeToRightMeta(node, container, beforeNode = null){
     }
 }
 
+function getBacklogEpicNode(keyRow, fixedVersionLabel, extraFieldNodes){
+
+    const extraEpicNode = extraFieldNodes.find(node =>
+        node.querySelector(".aui-label, .ghx-label, [data-fieldname*='epic' i], [title*='epic' i], [aria-label*='epic' i]")
+    );
+
+    if(extraEpicNode) return extraEpicNode;
+
+    return [...(keyRow?.querySelectorAll(".aui-label, .ghx-label") || [])].find(label =>
+        label !== fixedVersionLabel
+    ) || null;
+}
+
+function getBacklogActionTrigger(card){
+
+    const actionCandidate = card.querySelector(
+        ".ghx-issue-content button[aria-label*='more' i], .ghx-issue-content a[aria-label*='more' i], .ghx-issue-content button[title*='more' i], .ghx-issue-content a[title*='more' i], .ghx-issue-content .js-issue-actions, .ghx-issue-content .ghx-actions, .ghx-issue-content .ghx-extra-actions, .ghx-issue-content .aui-iconfont-more"
+    );
+
+    return actionCandidate?.closest("button, a") || actionCandidate || null;
+}
+
+function decorateBacklogActionTrigger(node){
+
+    if(!node?.isConnected) return null;
+
+    const trigger = node.closest("button, a") || node;
+    trigger.classList.add("tm-backlog-settings-trigger");
+    return trigger;
+}
+
 function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes, estimateNode = null){
 
     const nodes = [];
@@ -1845,17 +1921,7 @@ function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNod
         nodes.push(node);
     };
 
-    keyRow?.querySelectorAll(".aui-label, .ghx-label").forEach(label=>{
-        if(label !== fixedVersionLabel){
-            addNode(label);
-        }
-    });
-
-    const epicField = extraFieldNodes.find(node =>
-        node.querySelector(".aui-label, .ghx-label, [data-fieldname*='epic' i], [title*='epic' i], [aria-label*='epic' i]")
-    );
-
-    addNode(epicField);
+    addNode(getBacklogEpicNode(keyRow, fixedVersionLabel, extraFieldNodes));
 
     const assigneeNode = card.querySelector(
         ".ghx-issue-content .ghx-avatar, .ghx-issue-content .ghx-avatar-img, .ghx-issue-content .ghx-auto-avatar, .ghx-issue-content [data-tooltip*='assignee' i], .ghx-issue-content [aria-label*='assignee' i]"
@@ -1863,11 +1929,7 @@ function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNod
 
     addNode(assigneeNode);
 
-    const actionNode = card.querySelector(
-        ".ghx-issue-content .js-issue-actions, .ghx-issue-content .ghx-actions, .ghx-issue-content .ghx-extra-actions, .ghx-issue-content [aria-label*='more' i], .ghx-issue-content [title*='more' i], .ghx-issue-content .aui-iconfont-more"
-    );
-
-    addNode(actionNode);
+    addNode(decorateBacklogActionTrigger(getBacklogActionTrigger(card)));
 
     return nodes;
 }
@@ -1877,6 +1939,9 @@ function resetBacklogCardSimplification(scope = document){
     getBacklogIssueCards(scope).forEach(card=>{
 
         restoreMovedBacklogNodes(card);
+        card.querySelectorAll(".tm-backlog-settings-trigger").forEach(node=>{
+            node.classList.remove("tm-backlog-settings-trigger");
+        });
 
         card.classList.remove(
             "tm-backlog-simplified-card",
