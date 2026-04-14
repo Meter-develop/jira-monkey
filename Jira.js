@@ -444,18 +444,30 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
     flex:0 0 auto;
     display:inline-flex;
     align-items:center;
+    justify-content:center;
     margin-left:0;
+    padding:0 !important;
+    border:none !important;
+    background:transparent !important;
+    box-shadow:none !important;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate .ghx-statistic-badge{
-    display:inline-block;
-    background:#dfe1e6;
+    display:inline-flex !important;
+    align-items:center;
+    justify-content:center;
+    min-width:16px;
+    min-height:16px;
+    background:#dfe1e6 !important;
     font-size:11px;
     font-weight:700;
     padding:0 4px;
     border-radius:8px;
     margin-left:0;
     line-height:1.2;
+    border:none !important;
+    box-shadow:none !important;
+    vertical-align:middle;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-inline{
