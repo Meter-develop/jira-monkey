@@ -4251,6 +4251,7 @@ function syncIssueFieldTypography(scope = getBoardEnhancementScope()){
             && keyRow.querySelector(".ghx-summary")
         ){
             fieldContainers.add(keyRow);
+        }
     });
 
     fieldContainers.forEach(fields=>{
