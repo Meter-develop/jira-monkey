@@ -59,6 +59,7 @@ const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
     simplifySubtaskCards: true,
+    simplifyBacklogCards: true,
     showAssigneeNames: true,
     highlightCurrentUserIssues: true,
     enableAvatarQuickActions: true,
@@ -82,6 +83,11 @@ const FEATURE_DEFINITIONS = [
         key: "simplifySubtaskCards",
         label: "Simplify subtask cards",
         description: "Hides repeated footer metadata on subtasks to keep cards cleaner."
+    },
+    {
+        key: "simplifyBacklogCards",
+        label: "Simplify backlog cards",
+        description: "Moves story points and ready status forward, while hiding extra backlog metadata until hover."
     },
     {
         key: "showAssigneeNames",
@@ -417,6 +423,80 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 
 .tm-backlog-search-empty{
     display:none !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-key{
+    order:2;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate{
+    order:3;
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    margin-left:0;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate .ghx-statistic-badge{
+    margin-left:0;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-badge{
+    order:4;
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:16px;
+    padding:0 6px;
+    border-radius:10px;
+    background:#e9f2ff;
+    color:#0747a6;
+    font-size:10px;
+    font-weight:700;
+    line-height:1;
+    white-space:nowrap;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-badge--approved,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-badge--ready{
+    background:#dcfff1;
+    color:#216e4e;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-badge--resolved,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-badge--done{
+    background:#dfe1e6;
+    color:#44546f;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-summary{
+    order:5;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .tm-backlog-ready-source-field,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .tm-backlog-ready-source-separator{
+    display:none !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-ready-status .tm-backlog-fixed-version-label{
+    display:none !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-ready-status:hover .tm-backlog-fixed-version-label,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-ready-status:focus-within .tm-backlog-fixed-version-label{
+    display:inline-flex !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card .tm-backlog-hover-details{
+    display:none !important;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-extra-details:hover .tm-backlog-hover-details,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-extra-details:focus-within .tm-backlog-hover-details{
+    display:flex !important;
+    align-items:center;
+    flex-wrap:wrap;
 }
 
 .tm-settings-button{
@@ -1609,6 +1689,122 @@ function doesBacklogSearchTextMatch(text, terms){
     );
 }
 
+function getBacklogIssueCards(scope = getBoardEnhancementScope()){
+
+    const cards = new Set();
+
+    scope.querySelectorAll(
+        ".ghx-backlog-container .ghx-issue[data-issue-key], .ghx-backlog-container .js-issue[data-issue-key], #ghx-plan .ghx-issue[data-issue-key], #ghx-plan .js-issue[data-issue-key], #ghx-backlog .ghx-issue[data-issue-key], #ghx-backlog .js-issue[data-issue-key], .ghx-backlog .ghx-issue[data-issue-key], .ghx-backlog .js-issue[data-issue-key]"
+    ).forEach(node=>{
+
+        const card = node.closest(".ghx-issue[data-issue-key], .js-issue[data-issue-key]") || node;
+
+        if(card?.isConnected){
+            cards.add(card);
+        }
+    });
+
+    return [...cards];
+}
+
+function getBacklogReadyStatusSlug(value){
+
+    return normalizeBacklogSearchTerm(value)
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        || "status";
+}
+
+function resetBacklogCardSimplification(scope = document){
+
+    getBacklogIssueCards(scope).forEach(card=>{
+
+        card.classList.remove(
+            "tm-backlog-simplified-card",
+            "tm-backlog-has-ready-status",
+            "tm-backlog-has-extra-details",
+            "tm-backlog-has-fixed-version-label"
+        );
+        card.querySelector(".tm-backlog-ready-badge")?.remove();
+        card.querySelector(".tm-backlog-simplified-row")?.classList.remove("tm-backlog-simplified-row");
+        card.querySelector(".tm-backlog-hover-details")?.classList.remove("tm-backlog-hover-details");
+        card.querySelector(".tm-backlog-fixed-version-label")?.classList.remove("tm-backlog-fixed-version-label");
+        card.querySelectorAll(".tm-backlog-ready-source-field").forEach(node=>{
+            node.classList.remove("tm-backlog-ready-source-field");
+        });
+        card.querySelectorAll(".tm-backlog-ready-source-separator").forEach(node=>{
+            node.classList.remove("tm-backlog-ready-source-separator");
+        });
+    });
+}
+
+function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
+
+    if(!isBacklogViewActive()) return;
+
+    getBacklogIssueCards(scope).forEach(card=>{
+
+        const keyRow = card.querySelector(".ghx-issue-content .ghx-row.tm-issue-key-layout, .ghx-issue-content .ghx-row");
+        const summary = keyRow?.querySelector(".ghx-summary");
+        const estimate = keyRow?.querySelector(".ghx-end.ghx-estimate");
+        const fixedVersionLabel = keyRow?.querySelector(".ghx-label-0");
+        const extraFields = card.querySelector(".ghx-plan-extra-fields");
+        const extraFieldNodes = extraFields
+            ? [...extraFields.querySelectorAll(":scope > .ghx-extra-field")]
+            : [];
+        const readyField = extraFieldNodes[0] || null;
+        const readyContent = readyField?.querySelector(".ghx-extra-field-content");
+        const readyText = String(readyContent?.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim();
+        const readySeparator = readyField?.nextElementSibling?.classList.contains("ghx-extra-field-seperator")
+            ? readyField.nextElementSibling
+            : null;
+        const remainingFields = extraFieldNodes.filter(node => node !== readyField);
+
+        card.classList.add("tm-backlog-simplified-card");
+        card.classList.toggle("tm-backlog-has-extra-details", Boolean(remainingFields.length));
+        card.classList.toggle("tm-backlog-has-fixed-version-label", Boolean(fixedVersionLabel));
+        keyRow?.classList.add("tm-backlog-simplified-row");
+        extraFields?.classList.add("tm-backlog-hover-details");
+        fixedVersionLabel?.classList.add("tm-backlog-fixed-version-label");
+        extraFields?.querySelectorAll(".tm-backlog-ready-source-field").forEach(node=>{
+            node.classList.remove("tm-backlog-ready-source-field");
+        });
+        extraFields?.querySelectorAll(".tm-backlog-ready-source-separator").forEach(node=>{
+            node.classList.remove("tm-backlog-ready-source-separator");
+        });
+
+        let readyBadge = keyRow?.querySelector(".tm-backlog-ready-badge") || null;
+
+        if(readyText && keyRow){
+            if(!readyBadge){
+                readyBadge = document.createElement("span");
+                readyBadge.className = "tm-backlog-ready-badge";
+            }
+
+            readyBadge.textContent = readyText;
+            readyBadge.title = readyText;
+            readyBadge.className = `tm-backlog-ready-badge tm-backlog-ready-badge--${getBacklogReadyStatusSlug(readyText)}`;
+
+            if(estimate?.parentNode === keyRow){
+                keyRow.insertBefore(readyBadge, estimate.nextSibling);
+            }else if(summary?.parentNode === keyRow){
+                keyRow.insertBefore(readyBadge, summary);
+            }else{
+                keyRow.appendChild(readyBadge);
+            }
+
+            card.classList.add("tm-backlog-has-ready-status");
+            readyField?.classList.add("tm-backlog-ready-source-field");
+            readySeparator?.classList.add("tm-backlog-ready-source-separator");
+        }else{
+            readyBadge?.remove();
+            card.classList.remove("tm-backlog-has-ready-status");
+        }
+    });
+}
+
 function hasBacklogSearchQuery(){
 
     return isFeatureEnabled("enableBacklogSearch") && parseBacklogSearchTerms(backlogSearchQuery).length > 0;
@@ -1770,6 +1966,9 @@ function loadFeatureSettings(){
             simplifySubtaskCards: typeof parsed?.simplifySubtaskCards === "boolean"
                 ? parsed.simplifySubtaskCards
                 : FEATURE_DEFAULTS.simplifySubtaskCards,
+            simplifyBacklogCards: typeof parsed?.simplifyBacklogCards === "boolean"
+                ? parsed.simplifyBacklogCards
+                : FEATURE_DEFAULTS.simplifyBacklogCards,
             showAssigneeNames: typeof parsed?.showAssigneeNames === "boolean"
                 ? parsed.showAssigneeNames
                 : FEATURE_DEFAULTS.showAssigneeNames,
@@ -2028,6 +2227,7 @@ function applyFeatureClasses(){
     document.body.classList.toggle("tm-feature-assignee-names", hasBoardContext && isFeatureEnabled("showAssigneeNames"));
     document.body.classList.toggle("tm-feature-optimize-issue-ids", hasBoardContext && isFeatureEnabled("optimizeIssueIds"));
     document.body.classList.toggle("tm-feature-backlog-search", hasBoardContext && isFeatureEnabled("enableBacklogSearch"));
+    document.body.classList.toggle("tm-feature-simplify-backlog-cards", hasBoardContext && isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive());
     document.body.classList.toggle("tm-jira-board-view", isBoardViewActive());
     document.body.classList.toggle("tm-jira-backlog-view", isBacklogViewActive());
 }
@@ -2104,6 +2304,7 @@ function applyImmediateFeatureState(){
     if(!hasBoardEnhancementContext()){
         closeSettingsPanel();
         clearBacklogSearchFiltering(document);
+        resetBacklogCardSimplification(document);
 
         if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
             setFocusMode(FOCUS_MODE_OFF);
@@ -2140,6 +2341,13 @@ function applyImmediateFeatureState(){
 
     if(hasVisibleJiraIssues()){
         syncIssueFieldTypography(enhancementScope);
+
+        if(isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive()){
+            syncBacklogCardSimplification(enhancementScope);
+        }else{
+            resetBacklogCardSimplification(document);
+        }
+
         enhanceDefaultBacklogSections(enhancementScope);
         applyAssigneeEnhancements(enhancementScope);
         highlightCurrentUserIssueCards(enhancementScope);
@@ -3923,6 +4131,13 @@ async function applyBoardEnhancements(){
         }
 
         syncIssueFieldTypography(enhancementScope);
+
+        if(isFeatureEnabled("simplifyBacklogCards") && isBacklogViewActive()){
+            syncBacklogCardSimplification(enhancementScope);
+        }else{
+            resetBacklogCardSimplification(document);
+        }
+
         enhanceDefaultBacklogSections(enhancementScope);
 
         if(pool && isFeatureEnabled("showStoryPoints")){
