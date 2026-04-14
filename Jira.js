@@ -501,6 +501,14 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-me
     align-items:center;
 }
 
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-avatar-img,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-auto-avatar{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    flex:0 0 auto;
+}
+
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .aui-label,
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-label{
     max-width:180px;
@@ -1895,6 +1903,27 @@ function getBacklogActionTrigger(card){
     return actionCandidate?.closest("button, a") || actionCandidate || null;
 }
 
+function getBacklogAssigneeNode(card, estimateNode = null){
+
+    const wrappedAvatar = card.querySelector(".ghx-issue-content .ghx-avatar");
+
+    if(wrappedAvatar?.isConnected){
+        return wrappedAvatar;
+    }
+
+    const assigneeLeaf = card.querySelector(
+        ".ghx-issue-content .ghx-avatar-img, .ghx-issue-content .ghx-auto-avatar, .ghx-issue-content [data-tooltip*='assignee' i], .ghx-issue-content [aria-label*='assignee' i]"
+    );
+
+    if(!assigneeLeaf?.isConnected) return null;
+
+    if(estimateNode?.contains(assigneeLeaf)){
+        return assigneeLeaf;
+    }
+
+    return assigneeLeaf.closest(".ghx-avatar") || assigneeLeaf;
+}
+
 function decorateBacklogActionTrigger(node){
 
     if(!node?.isConnected) return null;
@@ -1913,7 +1942,7 @@ function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNod
 
         if(!candidate?.isConnected || candidate === fixedVersionLabel || candidate === summaryNode) return;
 
-        const node = candidate.closest(".ghx-extra-field, .ghx-avatar, .ghx-end, button, a") || candidate;
+        const node = candidate.closest(".ghx-extra-field, .ghx-avatar, button, a") || candidate;
 
         if(!node?.isConnected || node === fixedVersionLabel || node === summaryNode || node === estimateNode || seen.has(node)) return;
 
@@ -1923,11 +1952,7 @@ function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNod
 
     addNode(getBacklogEpicNode(keyRow, fixedVersionLabel, extraFieldNodes));
 
-    const assigneeNode = card.querySelector(
-        ".ghx-issue-content .ghx-avatar, .ghx-issue-content .ghx-avatar-img, .ghx-issue-content .ghx-auto-avatar, .ghx-issue-content [data-tooltip*='assignee' i], .ghx-issue-content [aria-label*='assignee' i]"
-    );
-
-    addNode(assigneeNode);
+    addNode(getBacklogAssigneeNode(card, estimateNode));
 
     addNode(decorateBacklogActionTrigger(getBacklogActionTrigger(card)));
 
