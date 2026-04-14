@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.18
+// @version      5.19
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -477,24 +477,48 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     color:inherit;
 }
 
+body.tm-settings-modal-open{
+    overflow:hidden !important;
+}
+
 body.tm-feature-backlog-search.tm-jira-backlog-view #ghx-backlog-search,
 body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     display:none !important;
 }
 
+.tm-settings-backdrop{
+    position:fixed;
+    inset:0;
+    z-index:9998;
+    background:rgba(9,30,66,.18);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+}
+
+.tm-settings-backdrop[hidden]{
+    display:none !important;
+}
+
 .tm-settings-panel{
     position:fixed;
-    top:0;
+    top:50%;
     right:auto;
-    left:0;
+    left:50%;
     z-index:9999;
-    width:320px;
-    padding:12px;
+    width:min(460px, calc(100vw - 24px));
+    max-width:calc(100vw - 24px);
+    max-height:min(calc(100vh - 24px), 720px);
+    overflow:auto;
+    overscroll-behavior:contain;
+    padding:14px;
     border:1px solid #dfe1e6;
     border-radius:10px;
     background:#ffffff;
     box-shadow:0 8px 24px rgba(9,30,66,.25);
     color:#172b4d;
+    box-sizing:border-box;
+    transform:translate(-50%, -50%);
+    scrollbar-gutter:stable;
 }
 
 .tm-settings-panel[hidden]{
@@ -538,13 +562,13 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
 }
 
 .tm-settings-section{
-    margin-top:12px;
-    padding-top:10px;
+    margin-top:10px;
+    padding-top:8px;
     border-top:1px solid #dfe1e6;
 }
 
 .tm-settings-section-title{
-    margin:0 0 8px;
+    margin:0 0 6px;
     font-size:12px;
     font-weight:700;
     color:#172b4d;
@@ -552,13 +576,13 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
 
 .tm-settings-color-grid{
     display:grid;
-    gap:8px;
+    gap:4px;
 }
 
 .tm-settings-color-option{
     display:grid;
     grid-template-columns:minmax(0, 1fr) auto;
-    gap:8px;
+    gap:6px;
     align-items:center;
 }
 
@@ -571,7 +595,7 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
 .tm-settings-color-control{
     display:inline-flex;
     align-items:center;
-    gap:8px;
+    gap:0;
 }
 
 .tm-settings-color-input{
@@ -582,16 +606,6 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     border-radius:6px;
     background:#ffffff;
     cursor:pointer;
-}
-
-.tm-settings-color-value{
-    min-width:72px;
-    font-size:11px;
-    line-height:1;
-    color:#5e6c84;
-    font-family:Consolas, "Courier New", monospace;
-    text-transform:uppercase;
-    text-align:right;
 }
 
 .tm-settings-actions{
@@ -1473,6 +1487,11 @@ function getActiveSettingsPanel(preferredSlot = null){
     return getActiveSettingsSlot(preferredSlot)?.querySelector(".tm-settings-panel") || null;
 }
 
+function getActiveSettingsBackdrop(preferredSlot = null){
+
+    return getActiveSettingsSlot(preferredSlot)?.querySelector(".tm-settings-backdrop") || null;
+}
+
 function normalizeBacklogSearchTerm(value){
 
     return String(value || "")
@@ -1600,19 +1619,13 @@ function createQuickFiltersSlot(container, className){
 
 function positionSettingsPanel(preferredSlot = null){
 
-    const button = getActiveSettingsButton(preferredSlot);
     const panel = getActiveSettingsPanel(preferredSlot);
 
-    if(!button || !panel) return;
+    if(!panel) return;
 
-    const buttonRect = button.getBoundingClientRect();
-    const panelWidth = panel.offsetWidth || 320;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-    const left = Math.max(8, Math.min(buttonRect.right - panelWidth, viewportWidth - panelWidth - 8));
-    const top = buttonRect.bottom + 8;
-
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
+    panel.style.left = "";
+    panel.style.top = "";
+    panel.style.transform = "";
 }
 
 function scheduleEnsureSettingsUi(delay = 120){
@@ -1869,7 +1882,6 @@ function renderIssueBadgeColorSettings(){
                                     value="${value}"
                                     aria-label="${escapeHtml(`${field.label}: ${field.description}`)}"
                                 >
-                                <span class="tm-settings-color-value">${value.toUpperCase()}</span>
                             </span>
                         </label>
                     `;
@@ -2042,6 +2054,10 @@ function getFeatureDefinition(key){
 function closeSettingsPanel(){
 
     settingsPanelOpen = false;
+    document.body?.classList.remove("tm-settings-modal-open");
+    document.querySelectorAll(".tm-settings-backdrop").forEach(backdrop=>{
+        backdrop.setAttribute("hidden", "hidden");
+    });
     document.querySelectorAll(".tm-settings-panel").forEach(panel=>{
         panel.setAttribute("hidden", "hidden");
     });
@@ -2053,6 +2069,7 @@ function closeSettingsPanel(){
 function openSettingsPanel(preferredSlot = null){
 
     const panel = getActiveSettingsPanel(preferredSlot);
+    const backdrop = getActiveSettingsBackdrop(preferredSlot);
     const button = getActiveSettingsButton(preferredSlot);
 
     if(!panel || !button) return;
@@ -2061,9 +2078,12 @@ function openSettingsPanel(preferredSlot = null){
 
     settingsPanelOpen = true;
 
+    document.body?.classList.add("tm-settings-modal-open");
+    backdrop?.removeAttribute("hidden");
     panel.removeAttribute("hidden");
     positionSettingsPanel(preferredSlot);
     button.setAttribute("aria-expanded", "true");
+    panel.focus();
 }
 
 function toggleSettingsPanel(preferredSlot = null){
@@ -2156,17 +2176,12 @@ function renderSettingsPanel(panel){
 
     panel.querySelectorAll("input[data-tm-color-setting]").forEach(input=>{
 
-        const valueNode = input.closest(".tm-settings-color-control")?.querySelector(".tm-settings-color-value");
         const syncColorValue = () => {
             const key = input.dataset.tmColorSetting;
             const value = normalizeHexColor(input.value, ISSUE_BADGE_COLOR_DEFAULTS[key]) || ISSUE_BADGE_COLOR_DEFAULTS[key];
 
             if(input.value !== value){
                 input.value = value;
-            }
-
-            if(valueNode){
-                valueNode.textContent = value.toUpperCase();
             }
 
             return value;
@@ -2380,12 +2395,30 @@ function ensureSettingsUi(){
 
     syncSettingsUpdateIndicator();
 
+    let backdrop = slot.querySelector(".tm-settings-backdrop");
+
+    if(!backdrop){
+        backdrop = document.createElement("div");
+        backdrop.className = "tm-settings-backdrop";
+        backdrop.setAttribute("hidden", "hidden");
+        backdrop.addEventListener("click", event=>{
+            event.preventDefault();
+            event.stopPropagation();
+            closeSettingsPanel();
+        });
+        slot.appendChild(backdrop);
+    }
+
     let panel = slot.querySelector(".tm-settings-panel");
 
     if(!panel){
         panel = document.createElement("div");
         panel.className = "tm-settings-panel";
         panel.setAttribute("hidden", "hidden");
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.setAttribute("aria-label", "Jira tweaks");
+        panel.tabIndex = -1;
         panel.addEventListener("click", event=>{
             event.stopPropagation();
         });
