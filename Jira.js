@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.15
+// @version      5.16
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -309,6 +309,51 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
     vertical-align:middle;
 }
 
+.tm-backlog-search-slot{
+    display:inline-flex;
+    flex:0 0 auto;
+    align-items:center;
+    margin-left:8px;
+    padding:0;
+    list-style:none;
+    vertical-align:middle;
+}
+
+.tm-backlog-search-input{
+    width:220px;
+    max-width:min(32vw, 320px);
+    min-height:28px;
+    padding:4px 10px;
+    border:1px solid #dfe1e6;
+    border-radius:6px;
+    background:#ffffff;
+    color:#172b4d;
+    font-size:12px;
+    line-height:1.4;
+}
+
+.tm-backlog-search-input::placeholder{
+    color:#6b778c;
+}
+
+.tm-backlog-search-input:hover{
+    border-color:#c1c7d0;
+}
+
+.tm-backlog-search-input:focus{
+    border-color:#4c9aff;
+    outline:2px solid rgba(76,154,255,.35);
+    outline-offset:1px;
+}
+
+.tm-backlog-search-hidden{
+    display:none !important;
+}
+
+.tm-backlog-search-empty{
+    display:none !important;
+}
+
 .tm-settings-button{
     position:relative;
     display:inline-flex;
@@ -583,6 +628,7 @@ let currentUserInfo = null;
 let currentUserInfoPromise = null;
 let lastHighlightDiagnosticKey = "";
 let userConfig = loadUserConfig();
+let backlogSearchQuery = "";
 
 function isRapidBoardPage(href = location.href){
 
@@ -1194,6 +1240,135 @@ function getActiveSettingsPanel(preferredSlot = null){
     return getActiveSettingsSlot(preferredSlot)?.querySelector(".tm-settings-panel") || null;
 }
 
+function normalizeBacklogSearchTerm(value){
+
+    return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
+function hasBacklogSearchQuery(){
+
+    return Boolean(normalizeBacklogSearchTerm(backlogSearchQuery));
+}
+
+function getBacklogSearchSlots(){
+
+    return [...document.querySelectorAll(".tm-backlog-search-slot")];
+}
+
+function syncBacklogSearchInputs(){
+
+    getBacklogSearchSlots().forEach(slot=>{
+
+        const input = slot.querySelector(".tm-backlog-search-input");
+
+        if(input && input.value !== backlogSearchQuery){
+            input.value = backlogSearchQuery;
+        }
+    });
+}
+
+function clearBacklogSearchFiltering(scope = document){
+
+    scope.querySelectorAll(".tm-backlog-search-hidden").forEach(node=>{
+        node.classList.remove("tm-backlog-search-hidden");
+    });
+
+    scope.querySelectorAll(".tm-backlog-search-empty").forEach(node=>{
+        node.classList.remove("tm-backlog-search-empty");
+    });
+}
+
+function getBacklogSearchableRoots(scope = getBoardEnhancementScope()){
+
+    const roots = new Set();
+
+    scope.querySelectorAll(".ghx-issue[data-issue-key], .js-issue[data-issue-key], .ghx-swimlane-header[data-issue-key]").forEach(node=>{
+
+        const root = node.closest(".ghx-parent-group, .js-fake-parent")
+            || node.closest(".ghx-issue[data-issue-key], .js-issue[data-issue-key]")
+            || node.closest(".ghx-swimlane")
+            || node;
+
+        if(root?.isConnected){
+            roots.add(root);
+        }
+    });
+
+    return [...roots].filter(root=>
+        root.closest(".ghx-backlog-container, #ghx-plan, #ghx-backlog, .ghx-backlog")
+    );
+}
+
+function syncBacklogContainerSearchState(scope, searchableRoots){
+
+    scope.querySelectorAll(".ghx-backlog-container").forEach(container=>{
+
+        const matchingRoots = searchableRoots.filter(root=>
+            container.contains(root) && !root.classList.contains("tm-backlog-search-hidden")
+        );
+        const hasSearchableIssues = searchableRoots.some(root=> container.contains(root));
+
+        container.classList.toggle(
+            "tm-backlog-search-empty",
+            hasBacklogSearchQuery() && hasSearchableIssues && !matchingRoots.length
+        );
+
+        syncDefaultBacklogIssueCount(container);
+    });
+}
+
+function applyBacklogSearchFilter(scope = getBoardEnhancementScope()){
+
+    clearBacklogSearchFiltering(scope);
+
+    if(!isBacklogViewActive() || !hasBoardEnhancementContext()){
+        return;
+    }
+
+    const query = normalizeBacklogSearchTerm(backlogSearchQuery);
+    const searchableRoots = getBacklogSearchableRoots(scope);
+
+    searchableRoots.forEach(root=>{
+
+        root.dataset.tmBacklogSearchText = normalizeBacklogSearchTerm(root.textContent);
+
+        const matches = !query || root.dataset.tmBacklogSearchText.includes(query);
+        root.classList.toggle("tm-backlog-search-hidden", !matches);
+    });
+
+    syncBacklogContainerSearchState(scope, searchableRoots);
+}
+
+function handleBacklogSearchInput(event){
+
+    backlogSearchQuery = event.currentTarget?.value || "";
+    syncBacklogSearchInputs();
+    applyBacklogSearchFilter();
+}
+
+function createQuickFiltersSlot(container, className){
+
+    const slotTagName = container.tagName === "UL" || container.tagName === "OL"
+        ? "li"
+        : container.tagName === "DL"
+            ? "dd"
+            : "span";
+    const slot = document.createElement(slotTagName);
+
+    slot.className = className;
+
+    if(slot.tagName === "DD"){
+        slot.classList.add("ghx-quickfilter");
+    }
+
+    return slot;
+}
+
 function positionSettingsPanel(preferredSlot = null){
 
     const button = getActiveSettingsButton(preferredSlot);
@@ -1533,6 +1708,7 @@ function applyImmediateFeatureState(){
 
     if(!hasBoardEnhancementContext()){
         closeSettingsPanel();
+        clearBacklogSearchFiltering(document);
 
         if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
             setFocusMode(FOCUS_MODE_OFF);
@@ -1573,6 +1749,8 @@ function applyImmediateFeatureState(){
         applyAssigneeEnhancements(enhancementScope);
         highlightCurrentUserIssueCards(enhancementScope);
     }
+
+    applyBacklogSearchFilter(enhancementScope);
 
     if(!isFeatureEnabled("enableFocusModeShortcut") && focusMode){
         setFocusMode(FOCUS_MODE_OFF);
@@ -1781,6 +1959,66 @@ function removeStaleSettingsSlots(container){
     });
 }
 
+function removeStaleBacklogSearchSlots(container){
+
+    getBacklogSearchSlots().forEach(slot=>{
+        if(slot.parentElement !== container || !isBacklogViewActive()){
+            slot.remove();
+        }
+    });
+}
+
+function ensureBacklogSearchUi(container, settingsSlot){
+
+    removeStaleBacklogSearchSlots(container);
+
+    if(!isBacklogViewActive()){
+        clearBacklogSearchFiltering(document);
+        return;
+    }
+
+    let slot = container.querySelector(".tm-backlog-search-slot");
+
+    if(!slot){
+        slot = createQuickFiltersSlot(container, "tm-backlog-search-slot");
+
+        if(settingsSlot?.nextSibling){
+            container.insertBefore(slot, settingsSlot.nextSibling);
+        }else{
+            container.appendChild(slot);
+        }
+    }else if(settingsSlot && slot.previousSibling !== settingsSlot){
+        container.insertBefore(slot, settingsSlot.nextSibling);
+    }
+
+    let input = slot.querySelector(".tm-backlog-search-input");
+
+    if(!input){
+        input = document.createElement("input");
+        input.type = "search";
+        input.className = "tm-backlog-search-input";
+        input.placeholder = "Search backlog";
+        input.setAttribute("aria-label", "Search backlog issues");
+        input.spellcheck = false;
+        input.autocomplete = "off";
+        input.addEventListener("input", handleBacklogSearchInput);
+        input.addEventListener("search", handleBacklogSearchInput);
+        input.addEventListener("keydown", event=>{
+
+            if(event.key !== "Escape" || !input.value) return;
+
+            event.stopPropagation();
+            input.value = "";
+            handleBacklogSearchInput({ currentTarget: input });
+        });
+        slot.appendChild(input);
+    }
+
+    if(input.value !== backlogSearchQuery){
+        input.value = backlogSearchQuery;
+    }
+}
+
 function ensureSettingsUi(){
 
     const container = getQuickFiltersContainer();
@@ -1795,22 +2033,12 @@ function ensureSettingsUi(){
 
     installSettingsUiEvents();
     removeStaleSettingsSlots(container);
+    removeStaleBacklogSearchSlots(container);
 
     let slot = container.querySelector(".tm-settings-slot");
 
     if(!slot){
-        const slotTagName = container.tagName === "UL" || container.tagName === "OL"
-            ? "li"
-            : container.tagName === "DL"
-                ? "dd"
-                : "span";
-
-        slot = document.createElement(slotTagName);
-        slot.className = "tm-settings-slot";
-
-        if(slot.tagName === "DD"){
-            slot.classList.add("ghx-quickfilter");
-        }
+        slot = createQuickFiltersSlot(container, "tm-settings-slot");
 
         const trigger = container.querySelector(".ghx-quickfilter-trigger");
 
@@ -1855,6 +2083,7 @@ function ensureSettingsUi(){
     }
 
     renderSettingsPanel(panel);
+    ensureBacklogSearchUi(container, slot);
 
     if(settingsPanelOpen){
         openSettingsPanel(slot);
@@ -1973,8 +2202,15 @@ function syncDefaultBacklogIssueCount(container){
 
     if(!issueCount) return;
 
+    const issues = [...container.querySelectorAll(".ghx-issue[data-issue-key], .js-issue[data-issue-key]")];
     const issueTotal = new Set(
-        [...container.querySelectorAll(".ghx-issue[data-issue-key], .js-issue[data-issue-key]")]
+        issues
+            .map(issue => issue.dataset.issueKey)
+            .filter(Boolean)
+    ).size;
+    const visibleIssueTotal = new Set(
+        issues
+            .filter(issue => !issue.closest(".tm-backlog-search-hidden"))
             .map(issue => issue.dataset.issueKey)
             .filter(Boolean)
     ).size;
@@ -1982,7 +2218,9 @@ function syncDefaultBacklogIssueCount(container){
     const textNode = [...issueCount.childNodes].find(node => node.nodeType === Node.TEXT_NODE);
 
     if(textNode){
-        textNode.textContent = `${issueTotal} issue${issueTotal === 1 ? "" : "s"} - `;
+        textNode.textContent = hasBacklogSearchQuery()
+            ? `${visibleIssueTotal} of ${issueTotal} issue${issueTotal === 1 ? "" : "s"} - `
+            : `${issueTotal} issue${issueTotal === 1 ? "" : "s"} - `;
     }
 }
 
@@ -3232,6 +3470,7 @@ async function applyBoardEnhancements(){
 
         applyAssigneeEnhancements(enhancementScope);
         highlightCurrentUserIssueCards(enhancementScope);
+        applyBacklogSearchFilter(enhancementScope);
 
         if(focusMode){
             syncFocusModeState();
