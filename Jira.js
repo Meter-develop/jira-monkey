@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.17
+// @version      5.18
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -27,6 +27,34 @@ const LOADER_UPDATE_STATUS_KEY = "tm-bootstrap-update-status-v1";
 const LOADER_UPDATE_STATUS_EVENT_NAME = "tm-bootstrap-update-status-change";
 const LOADER_LOADED_SCRIPTS_STATE_KEY = "__tmBootstrapLoadedScripts";
 const LOADER_LOADED_SCRIPTS_EVENT_NAME = "tm-bootstrap-loaded-scripts-change";
+const ISSUE_BADGE_COLOR_DEFAULTS = {
+    issueBadgeBackgroundColor: "#fff4bf",
+    issueBadgeTextColor: "#5e4a00",
+    resolvedIssueBadgeBackgroundColor: "#dcfff1",
+    resolvedIssueBadgeTextColor: "#216e4e"
+};
+const ISSUE_BADGE_COLOR_FIELDS = [
+    {
+        key: "issueBadgeBackgroundColor",
+        label: "Default badge background",
+        description: "Background color for normal issue ID badges."
+    },
+    {
+        key: "issueBadgeTextColor",
+        label: "Default badge text",
+        description: "Text color for normal issue ID badges."
+    },
+    {
+        key: "resolvedIssueBadgeBackgroundColor",
+        label: "Resolved badge background",
+        description: "Background color for resolved issue ID badges."
+    },
+    {
+        key: "resolvedIssueBadgeTextColor",
+        label: "Resolved badge text",
+        description: "Text color for resolved issue ID badges."
+    }
+];
 const FEATURE_DEFAULTS = {
     showStoryPoints: true,
     optimizeIssueIds: true,
@@ -101,6 +129,15 @@ GM_addStyle(`
 #ghx-pool { opacity: 0; transition: opacity .15s ease; }
 .tm-ready #ghx-pool { opacity: 1; }
 
+:root{
+    --tm-issue-badge-bg:#fff4bf;
+    --tm-issue-badge-text:#5e4a00;
+    --tm-resolved-issue-badge-bg:#dcfff1;
+    --tm-resolved-issue-badge-text:#216e4e;
+    --tm-resolved-issue-badge-hover-bg:#baf3db;
+    --tm-resolved-issue-badge-hover-text:#164b35;
+}
+
 .tm-story-points{
     display:inline-block;
     background:#dfe1e6;
@@ -163,8 +200,8 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    background:#fff4bf;
-    color:#5e4a00;
+    background:var(--tm-issue-badge-bg);
+    color:var(--tm-issue-badge-text);
     font-size:10px;
     font-weight:700;
     padding:0 6px;
@@ -268,8 +305,8 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key:focus{
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .tm-resolved-issue-key,
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-issue-key,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key{
-    background:#dcfff1;
-    color:#216e4e;
+    background:var(--tm-resolved-issue-badge-bg);
+    color:var(--tm-resolved-issue-badge-text);
 }
 
 body.tm-feature-optimize-issue-ids .ghx-issue-fields .ghx-key .tm-resolved-issue-key:hover,
@@ -278,8 +315,8 @@ body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-is
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .tm-resolved-issue-key:focus,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key:hover,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key:focus{
-    background:#baf3db;
-    color:#164b35;
+    background:var(--tm-resolved-issue-badge-hover-bg);
+    color:var(--tm-resolved-issue-badge-hover-text);
     text-decoration:none;
 }
 
@@ -426,6 +463,10 @@ body.tm-feature-optimize-issue-ids .tm-subtask-card .ghx-issue-key-link{
 }
 
 .tm-settings-button:focus{
+    outline:none;
+}
+
+.tm-settings-button:focus-visible{
     outline:2px solid #4c9aff;
     outline-offset:2px;
 }
@@ -494,6 +535,63 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     font-size:12px;
     font-weight:600;
     color:#172b4d;
+}
+
+.tm-settings-section{
+    margin-top:12px;
+    padding-top:10px;
+    border-top:1px solid #dfe1e6;
+}
+
+.tm-settings-section-title{
+    margin:0 0 8px;
+    font-size:12px;
+    font-weight:700;
+    color:#172b4d;
+}
+
+.tm-settings-color-grid{
+    display:grid;
+    gap:8px;
+}
+
+.tm-settings-color-option{
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto;
+    gap:8px;
+    align-items:center;
+}
+
+.tm-settings-color-label{
+    font-size:12px;
+    font-weight:600;
+    color:#172b4d;
+}
+
+.tm-settings-color-control{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+}
+
+.tm-settings-color-input{
+    width:34px;
+    height:24px;
+    padding:0;
+    border:1px solid #dfe1e6;
+    border-radius:6px;
+    background:#ffffff;
+    cursor:pointer;
+}
+
+.tm-settings-color-value{
+    min-width:72px;
+    font-size:11px;
+    line-height:1;
+    color:#5e6c84;
+    font-family:Consolas, "Courier New", monospace;
+    text-transform:uppercase;
+    text-align:right;
 }
 
 .tm-settings-actions{
@@ -903,6 +1001,107 @@ function normalizeEmailDomain(value){
     return normalized
         ? `@${normalized}`
         : "";
+}
+
+function normalizeHexColor(value, fallback = ""){
+
+    const normalized = String(value || "").trim();
+    const shortMatch = normalized.match(/^#([0-9a-f]{3})$/i);
+
+    if(shortMatch){
+        const [red, green, blue] = shortMatch[1].split("");
+        return `#${red}${red}${green}${green}${blue}${blue}`.toLowerCase();
+    }
+
+    const longMatch = normalized.match(/^#([0-9a-f]{6})$/i);
+
+    if(longMatch){
+        return `#${longMatch[1]}`.toLowerCase();
+    }
+
+    return fallback;
+}
+
+function clampColorChannel(value){
+
+    return Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+}
+
+function parseHexColor(value){
+
+    const normalized = normalizeHexColor(value);
+
+    if(!normalized) return null;
+
+    return {
+        red: parseInt(normalized.slice(1, 3), 16),
+        green: parseInt(normalized.slice(3, 5), 16),
+        blue: parseInt(normalized.slice(5, 7), 16)
+    };
+}
+
+function formatHexColor({ red, green, blue }){
+
+    return `#${[red, green, blue]
+        .map(channel => clampColorChannel(channel).toString(16).padStart(2, "0"))
+        .join("")}`;
+}
+
+function shiftHexColor(value, amount = 0){
+
+    const color = parseHexColor(value);
+    const ratio = Math.max(-1, Math.min(1, Number(amount) || 0));
+
+    if(!color){
+        return normalizeHexColor(value, "#000000");
+    }
+
+    const adjustChannel = channel => ratio >= 0
+        ? channel + (255 - channel) * ratio
+        : channel * (1 + ratio);
+
+    return formatHexColor({
+        red: adjustChannel(color.red),
+        green: adjustChannel(color.green),
+        blue: adjustChannel(color.blue)
+    });
+}
+
+function getIssueBadgeColorSetting(key){
+
+    return normalizeHexColor(featureSettings?.[key], ISSUE_BADGE_COLOR_DEFAULTS[key])
+        || ISSUE_BADGE_COLOR_DEFAULTS[key];
+}
+
+function getIssueBadgePalette(){
+
+    const resolvedBackgroundColor = getIssueBadgeColorSetting("resolvedIssueBadgeBackgroundColor");
+    const resolvedTextColor = getIssueBadgeColorSetting("resolvedIssueBadgeTextColor");
+
+    return {
+        issueBadgeBackgroundColor: getIssueBadgeColorSetting("issueBadgeBackgroundColor"),
+        issueBadgeTextColor: getIssueBadgeColorSetting("issueBadgeTextColor"),
+        resolvedIssueBadgeBackgroundColor: resolvedBackgroundColor,
+        resolvedIssueBadgeTextColor: resolvedTextColor,
+        resolvedIssueBadgeHoverBackgroundColor: shiftHexColor(resolvedBackgroundColor, -0.12),
+        resolvedIssueBadgeHoverTextColor: shiftHexColor(resolvedTextColor, -0.18)
+    };
+}
+
+function applyIssueBadgeColorVariables(){
+
+    const root = document.documentElement;
+
+    if(!root) return;
+
+    const palette = getIssueBadgePalette();
+
+    root.style.setProperty("--tm-issue-badge-bg", palette.issueBadgeBackgroundColor);
+    root.style.setProperty("--tm-issue-badge-text", palette.issueBadgeTextColor);
+    root.style.setProperty("--tm-resolved-issue-badge-bg", palette.resolvedIssueBadgeBackgroundColor);
+    root.style.setProperty("--tm-resolved-issue-badge-text", palette.resolvedIssueBadgeTextColor);
+    root.style.setProperty("--tm-resolved-issue-badge-hover-bg", palette.resolvedIssueBadgeHoverBackgroundColor);
+    root.style.setProperty("--tm-resolved-issue-badge-hover-text", palette.resolvedIssueBadgeHoverTextColor);
 }
 
 function getSuggestedEmailDomain(){
@@ -1471,10 +1670,17 @@ function loadFeatureSettings(){
                 : FEATURE_DEFAULTS.sortSwimlanes,
             sortDoneSubtasks: typeof parsed?.sortDoneSubtasks === "boolean"
                 ? parsed.sortDoneSubtasks
-                : FEATURE_DEFAULTS.sortDoneSubtasks
+                : FEATURE_DEFAULTS.sortDoneSubtasks,
+            issueBadgeBackgroundColor: normalizeHexColor(parsed?.issueBadgeBackgroundColor, ISSUE_BADGE_COLOR_DEFAULTS.issueBadgeBackgroundColor),
+            issueBadgeTextColor: normalizeHexColor(parsed?.issueBadgeTextColor, ISSUE_BADGE_COLOR_DEFAULTS.issueBadgeTextColor),
+            resolvedIssueBadgeBackgroundColor: normalizeHexColor(parsed?.resolvedIssueBadgeBackgroundColor, ISSUE_BADGE_COLOR_DEFAULTS.resolvedIssueBadgeBackgroundColor),
+            resolvedIssueBadgeTextColor: normalizeHexColor(parsed?.resolvedIssueBadgeTextColor, ISSUE_BADGE_COLOR_DEFAULTS.resolvedIssueBadgeTextColor)
         };
     }catch{
-        return { ...FEATURE_DEFAULTS };
+        return {
+            ...FEATURE_DEFAULTS,
+            ...ISSUE_BADGE_COLOR_DEFAULTS
+        };
     }
 }
 
@@ -1534,13 +1740,16 @@ function triggerLoaderUpdateNow(){
 function resetStoredSettings(){
 
     const confirmed = window.confirm(
-        "Reset Jira Board Suite settings to their first-run defaults? This clears feature preferences and the configured email domain, then reloads the page."
+        "Reset Jira Board Suite settings to their first-run defaults? This clears feature preferences, issue badge colors, and the configured email domain, then reloads the page."
     );
 
     if(!confirmed) return;
 
     clearStoredSettings();
-    featureSettings = { ...FEATURE_DEFAULTS };
+    featureSettings = {
+        ...FEATURE_DEFAULTS,
+        ...ISSUE_BADGE_COLOR_DEFAULTS
+    };
     userConfig = {};
     currentUserInfo = null;
     currentUserInfoPromise = null;
@@ -1640,6 +1849,36 @@ function renderLoadedScriptMeta(){
     `;
 }
 
+function renderIssueBadgeColorSettings(){
+
+    return `
+        <div class="tm-settings-section">
+            <h4 class="tm-settings-section-title">Issue ID badge colors</h4>
+            <div class="tm-settings-color-grid">
+                ${ISSUE_BADGE_COLOR_FIELDS.map(field => {
+                    const value = getIssueBadgeColorSetting(field.key);
+
+                    return `
+                        <label class="tm-settings-color-option" title="${escapeHtml(field.description)}">
+                            <span class="tm-settings-color-label">${escapeHtml(field.label)}</span>
+                            <span class="tm-settings-color-control">
+                                <input
+                                    type="color"
+                                    class="tm-settings-color-input"
+                                    data-tm-color-setting="${field.key}"
+                                    value="${value}"
+                                    aria-label="${escapeHtml(`${field.label}: ${field.description}`)}"
+                                >
+                                <span class="tm-settings-color-value">${value.toUpperCase()}</span>
+                            </span>
+                        </label>
+                    `;
+                }).join("")}
+            </div>
+        </div>
+    `;
+}
+
 function syncSettingsUpdateIndicator(){
 
     const hasUpdates = hasLoaderUpdateAvailable();
@@ -1659,6 +1898,8 @@ function syncSettingsUpdateIndicator(){
 }
 
 function applyFeatureClasses(){
+
+    applyIssueBadgeColorVariables();
 
     if(!document.body) return;
 
@@ -1877,6 +2118,7 @@ function renderSettingsPanel(panel){
                 </label>
             `).join("")}
         </div>
+        ${renderIssueBadgeColorSettings()}
         <div class="tm-settings-actions">
             <div class="tm-settings-action-group">
                 <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
@@ -1910,6 +2152,38 @@ function renderSettingsPanel(panel){
 
             scheduleApply(0);
         });
+    });
+
+    panel.querySelectorAll("input[data-tm-color-setting]").forEach(input=>{
+
+        const valueNode = input.closest(".tm-settings-color-control")?.querySelector(".tm-settings-color-value");
+        const syncColorValue = () => {
+            const key = input.dataset.tmColorSetting;
+            const value = normalizeHexColor(input.value, ISSUE_BADGE_COLOR_DEFAULTS[key]) || ISSUE_BADGE_COLOR_DEFAULTS[key];
+
+            if(input.value !== value){
+                input.value = value;
+            }
+
+            if(valueNode){
+                valueNode.textContent = value.toUpperCase();
+            }
+
+            return value;
+        };
+
+        syncColorValue();
+
+        const handleColorChange = event => {
+            const key = event.currentTarget.dataset.tmColorSetting;
+
+            featureSettings[key] = syncColorValue();
+            saveFeatureSettings();
+            applyIssueBadgeColorVariables();
+        };
+
+        input.addEventListener("input", handleColorChange);
+        input.addEventListener("change", handleColorChange);
     });
 
     panel.querySelector("[data-tm-settings-reset]")?.addEventListener("click", event=>{
