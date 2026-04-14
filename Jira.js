@@ -438,7 +438,14 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate .ghx-statistic-badge{
+    display:inline-block;
+    background:#dfe1e6;
+    font-size:11px;
+    font-weight:700;
+    padding:0 4px;
+    border-radius:8px;
     margin-left:0;
+    line-height:1.2;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-inline{
@@ -446,19 +453,49 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-in
     flex:0 0 auto;
     display:inline-flex;
     align-items:center;
-    color:#5e6c84;
     font-size:11px;
-    font-weight:600;
     line-height:1.2;
     white-space:nowrap;
 }
 
-body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-summary{
-    order:4;
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-inline,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-inline *{
+    font-size:11px !important;
 }
 
-body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-label-0{
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-summary{
+    order:4;
+    flex:1 1 auto;
+    min-width:0;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta{
     order:5;
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-left:auto;
+    min-width:0;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta > *{
+    flex:0 0 auto;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-extra-field,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-avatar,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-end{
+    display:inline-flex;
+    align-items:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .aui-label,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-label{
+    max-width:180px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card,
@@ -892,6 +929,7 @@ let settingsUiInstalled = false;
 let settingsPanelOpen = false;
 let settingsUiTimer = 0;
 let settingsPanelIdCounter = 0;
+let backlogOriginalPositionIdCounter = 0;
 let focusShortcutInstalled = false;
 const FOCUS_MODE_OFF = 0;
 const FOCUS_MODE_PARTIAL = 1;
@@ -1725,9 +1763,105 @@ function getBacklogIssueCards(scope = getBoardEnhancementScope()){
     return [...cards];
 }
 
+function restoreMovedBacklogNodes(scope = document){
+
+    scope.querySelectorAll(".tm-backlog-moved-node").forEach(node=>{
+
+        const placeholderId = node.dataset.tmBacklogPlaceholderId;
+        const placeholder = placeholderId
+            ? scope.querySelector(`.tm-backlog-original-placeholder[data-tm-backlog-placeholder-id="${placeholderId}"]`)
+                || document.querySelector(`.tm-backlog-original-placeholder[data-tm-backlog-placeholder-id="${placeholderId}"]`)
+            : null;
+
+        if(placeholder?.parentNode){
+            placeholder.parentNode.insertBefore(node, placeholder);
+            placeholder.remove();
+        }
+
+        node.classList.remove("tm-backlog-moved-node");
+        delete node.dataset.tmBacklogPlaceholderId;
+    });
+
+    scope.querySelectorAll(".tm-backlog-original-placeholder").forEach(node=>{
+        node.remove();
+    });
+
+    scope.querySelectorAll(".tm-backlog-right-meta").forEach(node=>{
+        node.remove();
+    });
+}
+
+function moveBacklogNodeToRightMeta(node, container){
+
+    if(!node?.isConnected || !container?.isConnected || node === container || container.contains(node)) return;
+    if(!node.parentNode) return;
+
+    if(!node.dataset.tmBacklogPlaceholderId){
+        backlogOriginalPositionIdCounter += 1;
+
+        const placeholder = document.createElement("span");
+        const placeholderId = `tm-backlog-placeholder-${backlogOriginalPositionIdCounter}`;
+
+        placeholder.hidden = true;
+        placeholder.className = "tm-backlog-original-placeholder";
+        placeholder.dataset.tmBacklogPlaceholderId = placeholderId;
+        node.parentNode.insertBefore(placeholder, node);
+        node.dataset.tmBacklogPlaceholderId = placeholderId;
+    }
+
+    node.classList.add("tm-backlog-moved-node");
+    container.appendChild(node);
+}
+
+function getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes){
+
+    const nodes = [];
+    const seen = new Set();
+    const summaryNode = keyRow?.querySelector(".ghx-summary");
+    const addNode = candidate=>{
+
+        if(!candidate?.isConnected || candidate === fixedVersionLabel || candidate === summaryNode) return;
+
+        const node = candidate.closest(".ghx-extra-field, .ghx-avatar, .ghx-end, button, a") || candidate;
+
+        if(!node?.isConnected || node === fixedVersionLabel || node === summaryNode || seen.has(node)) return;
+
+        seen.add(node);
+        nodes.push(node);
+    };
+
+    keyRow?.querySelectorAll(".aui-label, .ghx-label").forEach(label=>{
+        if(label !== fixedVersionLabel){
+            addNode(label);
+        }
+    });
+
+    const epicField = extraFieldNodes.find(node =>
+        node.querySelector(".aui-label, .ghx-label, [data-fieldname*='epic' i], [title*='epic' i], [aria-label*='epic' i]")
+    );
+
+    addNode(epicField);
+
+    const assigneeNode = card.querySelector(
+        ".ghx-issue-content .ghx-avatar, .ghx-issue-content .ghx-avatar-img, .ghx-issue-content .ghx-auto-avatar, .ghx-issue-content [data-tooltip*='assignee' i], .ghx-issue-content [aria-label*='assignee' i]"
+    );
+
+    addNode(assigneeNode);
+
+    const actionNode = card.querySelector(
+        ".ghx-issue-content .js-issue-actions, .ghx-issue-content .ghx-actions, .ghx-issue-content .ghx-extra-actions, .ghx-issue-content [aria-label*='more' i], .ghx-issue-content [title*='more' i], .ghx-issue-content .aui-iconfont-more"
+    );
+
+    addNode(actionNode);
+
+    return nodes;
+}
+
 function resetBacklogCardSimplification(scope = document){
 
     getBacklogIssueCards(scope).forEach(card=>{
+
+        restoreMovedBacklogNodes(card);
 
         card.classList.remove(
             "tm-backlog-simplified-card",
@@ -1761,6 +1895,8 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
 
     getBacklogIssueCards(scope).forEach(card=>{
 
+        restoreMovedBacklogNodes(card);
+
         const keyRow = card.querySelector(".ghx-issue-content .ghx-row.tm-issue-key-layout, .ghx-issue-content .ghx-row");
         const estimate = keyRow?.querySelector(".ghx-end.ghx-estimate");
         const keyNode = keyRow?.querySelector(".ghx-key");
@@ -1782,10 +1918,12 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             ? [...extraFields.querySelectorAll(":scope > .ghx-extra-field-seperator")]
             : [];
 
+        if(!keyRow) return;
+
         card.classList.add("tm-backlog-simplified-card");
         card.classList.toggle("tm-backlog-has-extra-details", Boolean(remainingFields.length));
         card.classList.toggle("tm-backlog-has-fixed-version-label", Boolean(fixedVersionLabel));
-        keyRow?.classList.add("tm-backlog-simplified-row");
+        keyRow.classList.add("tm-backlog-simplified-row");
         fixedVersionLabel?.classList.add("tm-backlog-fixed-version-label");
         card.querySelectorAll(".tm-backlog-hidden-source").forEach(node=>{
             node.classList.remove("tm-backlog-hidden-source");
@@ -1814,7 +1952,14 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
                 readyInline.className = "tm-backlog-ready-inline";
             }
 
-            readyInline.textContent = readyText;
+            readyInline.replaceChildren();
+
+            if(readyContent){
+                readyInline.appendChild(readyContent.cloneNode(true));
+            }else{
+                readyInline.textContent = readyText;
+            }
+
             readyInline.title = readyText;
 
             if(estimate?.parentNode === keyRow){
@@ -1831,6 +1976,17 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
         }else{
             readyInline?.remove();
             card.classList.remove("tm-backlog-has-ready-status");
+        }
+
+        const rightMetaNodes = getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes);
+
+        if(rightMetaNodes.length){
+            const rightMeta = document.createElement("span");
+            rightMeta.className = "tm-backlog-right-meta";
+            keyRow.appendChild(rightMeta);
+            rightMetaNodes.forEach(node=>{
+                moveBacklogNodeToRightMeta(node, rightMeta);
+            });
         }
 
         const previousOverlay = card.querySelector(".tm-backlog-hover-overlay");
