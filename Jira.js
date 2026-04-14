@@ -475,9 +475,8 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-ready-in
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-summary{
     order:4;
-    flex:0 1 auto;
+    flex:1 1 auto;
     min-width:0;
-    max-width:100%;
     align-items:center;
 }
 
@@ -487,8 +486,9 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-me
     display:inline-flex;
     align-items:center;
     gap:6px;
-    margin-left:8px;
+    margin-left:auto;
     min-width:0;
+    justify-content:flex-end;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta > *{
@@ -584,7 +584,7 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-hover-ov
     right:8px;
     top:calc(100% + 4px);
     z-index:20;
-    display:none;
+    display:none !important;
     padding:6px 8px;
     border:1px solid #dfe1e6;
     border-radius:6px;
@@ -594,11 +594,6 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-hover-ov
     font-size:11px;
     line-height:1.35;
     pointer-events:none;
-}
-
-body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-hover-details:hover .tm-backlog-hover-overlay,
-body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-card.tm-backlog-has-hover-details:focus-within .tm-backlog-hover-overlay{
-    display:block;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-hover-overlay .ghx-plan-extra-fields{
@@ -2144,60 +2139,8 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
 
         suppressBacklogVisibleTitles(summaryNode);
 
-        const previousOverlay = card.querySelector(".tm-backlog-hover-overlay");
-
-        if(previousOverlay){
-            previousOverlay.remove();
-        }
-
-        const overlayParts = [];
-
-        if(fixedVersionLabel && readyText){
-            const fixedVersionClone = fixedVersionLabel.cloneNode(true);
-            fixedVersionClone.classList.remove("tm-backlog-fixed-version-label");
-            fixedVersionClone.classList.add("tm-backlog-hover-fixed-version");
-            overlayParts.push(fixedVersionClone);
-        }
-
-        if(extraFields && (remainingFields.length || (!readyText && extraFieldNodes.length))){
-            const overlayFields = extraFields.cloneNode(true);
-
-            overlayFields.querySelectorAll(".tm-backlog-ready-source-field, .tm-backlog-ready-source-separator, .tm-backlog-hidden-source, .tm-backlog-hidden-separator").forEach(node=>{
-                node.classList.remove(
-                    "tm-backlog-ready-source-field",
-                    "tm-backlog-ready-source-separator",
-                    "tm-backlog-hidden-source",
-                    "tm-backlog-hidden-separator"
-                );
-            });
-
-            if(readyText){
-                const overlayExtraFields = [...overlayFields.querySelectorAll(":scope > .ghx-extra-field")];
-                const overlayReadyField = overlayExtraFields[0] || null;
-                const overlayReadySeparator = overlayReadyField?.nextElementSibling?.classList.contains("ghx-extra-field-seperator")
-                    ? overlayReadyField.nextElementSibling
-                    : null;
-
-                overlayReadyField?.remove();
-                overlayReadySeparator?.remove();
-            }
-
-            if(overlayFields.children.length){
-                overlayParts.push(overlayFields);
-            }
-        }
-
-        if(overlayParts.length){
-            const overlay = document.createElement("div");
-            overlay.className = "tm-backlog-hover-overlay";
-            overlayParts.forEach(part=>{
-                overlay.appendChild(part);
-            });
-            card.appendChild(overlay);
-            card.classList.add("tm-backlog-has-hover-details");
-        }else{
-            card.classList.remove("tm-backlog-has-hover-details");
-        }
+        card.querySelector(".tm-backlog-hover-overlay")?.remove();
+        card.classList.remove("tm-backlog-has-hover-details");
     });
 }
 
