@@ -1532,9 +1532,86 @@ function normalizeBacklogSearchTerm(value){
         .toLowerCase();
 }
 
+function parseBacklogSearchTerms(value){
+
+    const query = String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+    const terms = [];
+    let index = 0;
+
+    while(index < query.length){
+        while(index < query.length && /\s/.test(query[index])){
+            index += 1;
+        }
+
+        if(index >= query.length) break;
+
+        let exclude = false;
+
+        if(query[index] === "!"){
+            exclude = true;
+            index += 1;
+
+            while(index < query.length && /\s/.test(query[index])){
+                index += 1;
+            }
+        }
+
+        if(index >= query.length) break;
+
+        let term = "";
+
+        if(query[index] === '"'){
+            index += 1;
+            const startIndex = index;
+
+            while(index < query.length && query[index] !== '"'){
+                index += 1;
+            }
+
+            term = query.slice(startIndex, index);
+
+            if(index < query.length && query[index] === '"'){
+                index += 1;
+            }
+        }else{
+            const startIndex = index;
+
+            while(index < query.length && !/\s/.test(query[index])){
+                index += 1;
+            }
+
+            term = query.slice(startIndex, index);
+        }
+
+        const normalizedTerm = normalizeBacklogSearchTerm(term);
+
+        if(normalizedTerm){
+            terms.push({ value: normalizedTerm, exclude });
+        }
+    }
+
+    return terms;
+}
+
+function doesBacklogSearchTextMatch(text, terms){
+
+    if(!terms.length) return true;
+
+    const normalizedText = normalizeBacklogSearchTerm(text);
+
+    return terms.every(term =>
+        term.exclude
+            ? !normalizedText.includes(term.value)
+            : normalizedText.includes(term.value)
+    );
+}
+
 function hasBacklogSearchQuery(){
 
-    return isFeatureEnabled("enableBacklogSearch") && Boolean(normalizeBacklogSearchTerm(backlogSearchQuery));
+    return isFeatureEnabled("enableBacklogSearch") && parseBacklogSearchTerms(backlogSearchQuery).length > 0;
 }
 
 function getBacklogSearchSlots(){
@@ -1612,14 +1689,14 @@ function applyBacklogSearchFilter(scope = getBoardEnhancementScope()){
         return;
     }
 
-    const query = normalizeBacklogSearchTerm(backlogSearchQuery);
+    const searchTerms = parseBacklogSearchTerms(backlogSearchQuery);
     const searchableRoots = getBacklogSearchableRoots(scope);
 
     searchableRoots.forEach(root=>{
 
         root.dataset.tmBacklogSearchText = normalizeBacklogSearchTerm(root.textContent);
 
-        const matches = !query || root.dataset.tmBacklogSearchText.includes(query);
+        const matches = doesBacklogSearchTextMatch(root.dataset.tmBacklogSearchText, searchTerms);
         root.classList.toggle("tm-backlog-search-hidden", !matches);
     });
 
@@ -2370,8 +2447,9 @@ function ensureBacklogSearchUi(container, settingsSlot){
         input = document.createElement("input");
         input.type = "search";
         input.className = "tm-backlog-search-input";
-        input.placeholder = "Search backlog";
-        input.setAttribute("aria-label", "Search backlog issues");
+        input.placeholder = 'Search backlog: foo "bar baz" !done';
+        input.setAttribute("aria-label", "Search backlog issues using spaces for AND, quotes for phrases, and exclamation mark to exclude terms");
+        input.title = 'Use spaces for AND, quotes for phrases, and !term to exclude';
         input.spellcheck = false;
         input.autocomplete = "off";
         input.addEventListener("input", handleBacklogSearchInput);
