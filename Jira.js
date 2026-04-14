@@ -1431,6 +1431,19 @@ function extractAssigneeName(avatar){
     return "";
 }
 
+function setAssigneeTooltip(target, fullName){
+
+    if(!target?.isConnected || !fullName) return;
+
+    const tooltip = `Assignee: ${fullName}`;
+
+    target.setAttribute("title", tooltip);
+
+    if(target.matches?.(".ghx-avatar-img, .ghx-auto-avatar")){
+        target.setAttribute("aria-label", tooltip);
+    }
+}
+
 function getBoardPanel(){
 
     return document.querySelector("#ghx-detail-view");
@@ -1598,6 +1611,14 @@ function applyAssigneeEnhancements(scope = getBoardEnhancementScope()){
         if(!fullName) return;
 
         avatar.dataset.tmAssigneeFullName = fullName;
+        setAssigneeTooltip(avatar, fullName);
+
+        const wrappedAvatar = avatar.closest(".ghx-avatar");
+
+        if(wrappedAvatar){
+            wrappedAvatar.dataset.tmAssigneeFullName = fullName;
+            setAssigneeTooltip(wrappedAvatar, fullName);
+        }
 
         if(!avatar.dataset.tmAssigneeHandler){
             avatar.dataset.tmAssigneeHandler = "true";
@@ -1899,6 +1920,68 @@ function restoreBacklogVisibleTitles(scope = document){
     });
 }
 
+function ensureBacklogAssigneeTooltip(node){
+
+    if(!node?.isConnected) return;
+
+    const assigneeNode = node.matches?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar")
+        ? node
+        : node.querySelector?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar");
+    const tooltipSource = assigneeNode?.matches?.(".ghx-avatar-img, .ghx-auto-avatar")
+        ? assigneeNode
+        : assigneeNode?.querySelector?.(".ghx-avatar-img, .ghx-auto-avatar");
+    const fullName = assigneeNode?.dataset.tmAssigneeFullName
+        || tooltipSource?.dataset.tmAssigneeFullName
+        || extractAssigneeName(tooltipSource)
+        || extractAssigneeName(assigneeNode);
+
+    if(!fullName) return;
+
+    if(assigneeNode){
+        assigneeNode.dataset.tmAssigneeFullName = fullName;
+        setAssigneeTooltip(assigneeNode, fullName);
+    }
+
+    if(tooltipSource && tooltipSource !== assigneeNode){
+        tooltipSource.dataset.tmAssigneeFullName = fullName;
+        setAssigneeTooltip(tooltipSource, fullName);
+    }
+}
+
+function getBacklogSearchText(root){
+
+    if(!root?.isConnected) return "";
+
+    const values = [];
+    const seen = new Set();
+    const addValue = value=>{
+
+        const normalizedValue = String(value || "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if(!normalizedValue || seen.has(normalizedValue)) return;
+
+        seen.add(normalizedValue);
+        values.push(normalizedValue);
+    };
+
+    addValue(root.textContent);
+    addValue(root.getAttribute?.("title"));
+    addValue(root.getAttribute?.("aria-label"));
+    addValue(root.getAttribute?.("alt"));
+    addValue(root.dataset?.tmAssigneeFullName);
+
+    root.querySelectorAll?.("[title], [aria-label], [alt], [data-tm-assignee-full-name]").forEach(node=>{
+        addValue(node.getAttribute("title"));
+        addValue(node.getAttribute("aria-label"));
+        addValue(node.getAttribute("alt"));
+        addValue(node.dataset?.tmAssigneeFullName);
+    });
+
+    return normalizeBacklogSearchTerm(values.join(" "));
+}
+
 function moveBacklogNodeToRightMeta(node, container, beforeNode = null){
 
     if(!node?.isConnected || !container?.isConnected || node === container || container.contains(node)) return;
@@ -2148,7 +2231,11 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             rightMeta.className = "tm-backlog-right-meta";
             keyRow.appendChild(rightMeta);
             rightMetaNodes.forEach(node=>{
-                suppressBacklogVisibleTitles(node);
+                if(node.matches?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar") || node.querySelector?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar")){
+                    ensureBacklogAssigneeTooltip(node);
+                }else{
+                    suppressBacklogVisibleTitles(node);
+                }
                 moveBacklogNodeToRightMeta(node, rightMeta);
             });
         }
@@ -2245,7 +2332,7 @@ function applyBacklogSearchFilter(scope = getBoardEnhancementScope()){
 
     searchableRoots.forEach(root=>{
 
-        root.dataset.tmBacklogSearchText = normalizeBacklogSearchTerm(root.textContent);
+        root.dataset.tmBacklogSearchText = getBacklogSearchText(root);
 
         const matches = doesBacklogSearchTextMatch(root.dataset.tmBacklogSearchText, searchTerms);
         root.classList.toggle("tm-backlog-search-hidden", !matches);
