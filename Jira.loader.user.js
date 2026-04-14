@@ -44,7 +44,13 @@
     };
     const loadedScriptUrls = new Set();
     const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
+    const UPDATE_LAUNCHER_ID = 'tm-bootstrap-update-launcher';
     let modalStylesInstalled = false;
+    let updateLauncherStylesInstalled = false;
+    let updateLauncherEnabled = false;
+    let updateLauncherListenersInstalled = false;
+    let updateLauncherRefreshTimer = 0;
+    let updateLauncherObserver = null;
     let approvalPromptCount = 0;
     let manualUpdatePromise = null;
 
@@ -270,6 +276,72 @@
 
             #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--primary:hover {
                 background: #0055cc;
+            }
+        `;
+
+        if (typeof GM_addStyle === 'function') {
+            GM_addStyle(styles);
+            return;
+        }
+
+        const styleTag = document.createElement('style');
+        styleTag.textContent = styles;
+        (document.head || document.documentElement).appendChild(styleTag);
+    }
+
+    function ensureUpdateLauncherStyles() {
+        if (updateLauncherStylesInstalled) {
+            return;
+        }
+
+        updateLauncherStylesInstalled = true;
+
+        const styles = `
+            #${UPDATE_LAUNCHER_ID} {
+                position: fixed;
+                right: 16px;
+                bottom: 16px;
+                z-index: 2147483646;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 36px;
+                padding: 8px 12px;
+                border: 1px solid #d0d7de;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.96);
+                box-shadow: 0 8px 24px rgba(9, 30, 66, 0.18);
+                color: #172b4d;
+                font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                cursor: pointer;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
+
+            #${UPDATE_LAUNCHER_ID}:hover {
+                background: #f7f8f9;
+            }
+
+            #${UPDATE_LAUNCHER_ID}:focus {
+                outline: 2px solid #4c9aff;
+                outline-offset: 2px;
+            }
+
+            #${UPDATE_LAUNCHER_ID}.tm-bootstrap-update-launcher--attention {
+                border-color: #f5c2c0;
+                background: #fff0f0;
+                color: #ae2e24;
+            }
+
+            #${UPDATE_LAUNCHER_ID}.tm-bootstrap-update-launcher--fallback {
+                border-color: #cce0ff;
+                background: #e9f2ff;
+                color: #0747a6;
+            }
+
+            #${UPDATE_LAUNCHER_ID}[disabled] {
+                cursor: wait;
+                opacity: 0.85;
             }
         `;
 
@@ -641,6 +713,150 @@
         }));
     }
 
+    function hasVisiblePageSettingsButton() {
+        return Boolean(document.querySelector('.tm-settings-button'));
+    }
+
+    function shouldShowUpdateLauncher() {
+        if (!updateLauncherEnabled) {
+            return false;
+        }
+
+        return Boolean(readUpdateStatus().hasUpdates) || !hasVisiblePageSettingsButton();
+    }
+
+    function getUpdateLauncherPresentation() {
+        const hasUpdates = Boolean(readUpdateStatus().hasUpdates);
+        const hasSettingsButton = hasVisiblePageSettingsButton();
+
+        if (hasUpdates) {
+            return {
+                label: 'TM Update',
+                title: 'Updates are available. Click to review and apply approved updates.'
+            };
+        }
+
+        if (!hasSettingsButton) {
+            return {
+                label: 'TM Check updates',
+                title: 'Fallback update button: the Jira settings cog is unavailable on this page.'
+            };
+        }
+
+        return {
+            label: 'TM Check updates',
+            title: 'Check the loader, manifest, and matching scripts for updates.'
+        };
+    }
+
+    function getUpdateLauncher() {
+        return document.getElementById(UPDATE_LAUNCHER_ID);
+    }
+
+    function scheduleUpdateLauncherRefresh(delay = 0) {
+        window.clearTimeout(updateLauncherRefreshTimer);
+        updateLauncherRefreshTimer = window.setTimeout(() => {
+            void ensureUpdateLauncher();
+        }, Math.max(0, delay));
+    }
+
+    async function ensureUpdateLauncher() {
+        const mountNode = await waitForModalMountNode();
+
+        if (!mountNode) {
+            return;
+        }
+
+        const existingButton = getUpdateLauncher();
+
+        if (!shouldShowUpdateLauncher()) {
+            existingButton?.remove();
+            return;
+        }
+
+        ensureUpdateLauncherStyles();
+
+        const button = existingButton || document.createElement('button');
+
+        if (!existingButton) {
+            button.id = UPDATE_LAUNCHER_ID;
+            button.type = 'button';
+            button.addEventListener('click', async () => {
+                if (button.disabled) {
+                    return;
+                }
+
+                const previousLabel = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Checking…';
+
+                try {
+                    await runManualUpdateCheck();
+                } finally {
+                    button.disabled = false;
+                    button.textContent = previousLabel;
+                    scheduleUpdateLauncherRefresh(0);
+                }
+            });
+            mountNode.appendChild(button);
+        }
+
+        const presentation = getUpdateLauncherPresentation();
+        const hasUpdates = Boolean(readUpdateStatus().hasUpdates);
+        const missingSettingsButton = !hasVisiblePageSettingsButton();
+
+        button.textContent = presentation.label;
+        button.title = presentation.title;
+        button.setAttribute('aria-label', presentation.title);
+        button.classList.toggle('tm-bootstrap-update-launcher--attention', hasUpdates);
+        button.classList.toggle('tm-bootstrap-update-launcher--fallback', !hasUpdates && missingSettingsButton);
+    }
+
+    function installUpdateLauncherListeners() {
+        if (updateLauncherListenersInstalled) {
+            return;
+        }
+
+        updateLauncherListenersInstalled = true;
+
+        window.addEventListener('storage', event => {
+            if (event.key === UPDATE_STATUS_KEY) {
+                scheduleUpdateLauncherRefresh(0);
+            }
+        });
+
+        window.addEventListener(UPDATE_STATUS_EVENT_NAME, () => {
+            scheduleUpdateLauncherRefresh(0);
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            scheduleUpdateLauncherRefresh(0);
+        }, { once: true });
+
+        if (typeof MutationObserver === 'function' && document.documentElement) {
+            updateLauncherObserver = new MutationObserver(() => {
+                scheduleUpdateLauncherRefresh(100);
+            });
+
+            updateLauncherObserver.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        }
+    }
+
+    function setUpdateLauncherEnabled(enabled) {
+        updateLauncherEnabled = Boolean(enabled);
+
+        if (updateLauncherEnabled) {
+            installUpdateLauncherListeners();
+            scheduleUpdateLauncherRefresh(0);
+            return;
+        }
+
+        getUpdateLauncher()?.remove();
+    }
+
     function writeUpdateStatus({ hasUpdates, checkedAt = Date.now() }) {
         const nextStatus = {
             hasUpdates: Boolean(hasUpdates),
@@ -652,6 +868,7 @@
         } catch {}
 
         emitUpdateStatus(nextStatus);
+        scheduleUpdateLauncherRefresh(0);
         return nextStatus;
     }
 
@@ -1873,6 +2090,8 @@
         const scriptEntries = getEnabledManifestEntries(manifest);
 
         const candidateEntries = getPageMatchingManifestEntries(manifest);
+
+        setUpdateLauncherEnabled(candidateEntries.length > 0);
 
         if (!scriptEntries.length) {
             console.info('[TM bootstrap] Manifest loaded but contains no enabled scripts.');
