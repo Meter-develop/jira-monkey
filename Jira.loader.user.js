@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.5
+// @version      4.6
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -517,6 +517,14 @@
         } catch {
             return {};
         }
+    }
+
+    function getLoadedScriptState(url) {
+        return readLoadedScriptsState()[url] || null;
+    }
+
+    function getLoadedScriptHash(url) {
+        return normalizeHash(getLoadedScriptState(url)?.sourceHash);
     }
 
     function writeLoadedScriptsState(nextState) {
@@ -1048,15 +1056,24 @@
 
                 for (const entry of candidateEntries) {
                     const approvedHash = await getApprovedHashFor('script', entry.url);
+                    const loadedHash = getLoadedScriptHash(entry.url);
                     const remoteRecord = await fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh: true });
                     const remoteHash = normalizeHash(await ensureRecordHash(remoteRecord));
                     const scriptChanged = !approvedHash || remoteHash !== approvedHash;
+                    const staleLoadedScript = Boolean(loadedHash) && remoteHash !== loadedHash;
 
-                    if (!scriptChanged) {
+                    if (!scriptChanged && !staleLoadedScript) {
                         continue;
                     }
 
                     changesDetected = true;
+
+                    if (!scriptChanged && staleLoadedScript) {
+                        await storeApprovedSourceRecord(remoteRecord);
+                        approvedChangesDetected = true;
+                        continue;
+                    }
+
                     unresolvedUpdateCount += 1;
 
                     if (await ensureRecordIsTrusted(remoteRecord)) {
@@ -1139,6 +1156,7 @@
 
             for (const entry of candidateEntries) {
                 const approvedHash = await getApprovedHashFor('script', entry.url);
+                const loadedHash = getLoadedScriptHash(entry.url);
 
                 if (!approvedHash) {
                     writeUpdateStatus({
@@ -1151,7 +1169,7 @@
                 const remoteRecord = await fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, { forceRefresh: true });
                 const remoteHash = normalizeHash(await ensureRecordHash(remoteRecord));
 
-                if (remoteHash !== approvedHash) {
+                if (remoteHash !== approvedHash || (loadedHash && remoteHash !== loadedHash)) {
                     writeUpdateStatus({
                         hasUpdates: true,
                         checkedAt: Date.now()

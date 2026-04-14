@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.21
+// @version      5.22
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -1858,6 +1858,12 @@ function formatLoadedScriptDate(value){
 }
 
 function formatLoadedScriptVersion(info){
+
+    const version = String(info?.version || "").trim();
+
+    if(version){
+        return version;
+    }
 
     const sourceHash = String(info?.sourceHash || "").trim().toLowerCase();
 
