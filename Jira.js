@@ -135,6 +135,10 @@ GM_addStyle(`
 #ghx-pool { opacity: 0; transition: opacity .15s ease; }
 .tm-ready #ghx-pool { opacity: 1; }
 
+html.tm-backlog-enhancing #ghx-plan,
+html.tm-backlog-enhancing #ghx-backlog,
+html.tm-backlog-enhancing .ghx-backlog,
+html.tm-backlog-enhancing .ghx-backlog-container,
 body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
 body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
 body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
@@ -143,6 +147,10 @@ body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view
     transition: opacity .12s ease;
 }
 
+html.tm-backlog-ready #ghx-plan,
+html.tm-backlog-ready #ghx-backlog,
+html.tm-backlog-ready .ghx-backlog,
+html.tm-backlog-ready .ghx-backlog-container,
 body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
 body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
 body.tm-backlog-ready.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
@@ -1031,6 +1039,8 @@ let currentUserInfoPromise = null;
 let lastHighlightDiagnosticKey = "";
 let userConfig = loadUserConfig();
 let backlogSearchQuery = "";
+
+syncBacklogRenderState(false);
 
 function isRapidBoardPage(href = location.href){
 
@@ -3967,19 +3977,39 @@ function markBoardDirty({ hideBoard = false } = {}){
     }
 }
 
+function toggleRenderStateClass(className, enabled){
+
+    document.documentElement?.classList.toggle(className, enabled);
+    document.body?.classList.toggle(className, enabled);
+}
+
+function removeRenderStateClasses(...classNames){
+
+    document.documentElement?.classList.remove(...classNames);
+    document.body?.classList.remove(...classNames);
+}
+
 function syncBacklogRenderState(isReady){
 
-    const shouldManageBacklogRender = hasBoardEnhancementContext()
-        && isBacklogViewActive()
+    const shouldPrimeBacklogRender = isRapidBoardPage()
         && isFeatureEnabled("simplifyBacklogCards");
+    const shouldManageBacklogRender = shouldPrimeBacklogRender
+        && hasBoardEnhancementContext()
+        && isBacklogViewActive();
 
-    if(!shouldManageBacklogRender){
-        document.body?.classList.remove("tm-backlog-enhancing", "tm-backlog-ready");
+    if(isReady && shouldManageBacklogRender){
+        toggleRenderStateClass("tm-backlog-enhancing", false);
+        toggleRenderStateClass("tm-backlog-ready", true);
         return;
     }
 
-    document.body?.classList.toggle("tm-backlog-enhancing", !isReady);
-    document.body?.classList.toggle("tm-backlog-ready", isReady);
+    if(shouldPrimeBacklogRender){
+        toggleRenderStateClass("tm-backlog-enhancing", true);
+        toggleRenderStateClass("tm-backlog-ready", false);
+        return;
+    }
+
+    removeRenderStateClasses("tm-backlog-enhancing", "tm-backlog-ready");
 }
 
 function suppressObserver(ms = 800){
