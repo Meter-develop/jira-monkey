@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.19
+// @version      5.20
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -508,8 +508,9 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     width:min(460px, calc(100vw - 24px));
     max-width:calc(100vw - 24px);
     max-height:min(calc(100vh - 24px), 720px);
-    overflow:auto;
-    overscroll-behavior:contain;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
     padding:14px;
     border:1px solid #dfe1e6;
     border-radius:10px;
@@ -531,6 +532,15 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     font-weight:700;
 }
 
+.tm-settings-scroll-area{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior:contain;
+    padding-right:4px;
+}
+
 .tm-settings-list{
     display:grid;
     gap:8px;
@@ -545,6 +555,12 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
 
 .tm-settings-option input{
     margin-top:2px;
+}
+
+.tm-settings-option-label{
+    display:inline-flex;
+    justify-self:start;
+    cursor:pointer;
 }
 
 .tm-settings-label-row{
@@ -581,24 +597,24 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
 
 .tm-settings-color-option{
     display:grid;
-    grid-template-columns:minmax(0, 1fr) auto;
-    gap:6px;
+    grid-template-columns:max-content max-content;
+    justify-content:start;
+    column-gap:10px;
     align-items:center;
 }
 
 .tm-settings-color-label{
+    display:inline-flex;
+    align-items:center;
+    justify-self:start;
     font-size:12px;
     font-weight:600;
     color:#172b4d;
-}
-
-.tm-settings-color-control{
-    display:inline-flex;
-    align-items:center;
-    gap:0;
+    cursor:pointer;
 }
 
 .tm-settings-color-input{
+    justify-self:start;
     width:34px;
     height:24px;
     padding:0;
@@ -606,6 +622,13 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     border-radius:6px;
     background:#ffffff;
     cursor:pointer;
+}
+
+.tm-settings-footer{
+    flex:0 0 auto;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid #dfe1e6;
 }
 
 .tm-settings-actions{
@@ -617,6 +640,12 @@ body.tm-feature-backlog-search.tm-jira-backlog-view form#ghx-backlog-search{
     margin-top:12px;
     padding-top:10px;
     border-top:1px solid #dfe1e6;
+}
+
+.tm-settings-footer .tm-settings-actions{
+    margin-top:0;
+    padding-top:0;
+    border-top:none;
 }
 
 .tm-settings-action-group{
@@ -764,6 +793,7 @@ let featureSettings = loadFeatureSettings();
 let settingsUiInstalled = false;
 let settingsPanelOpen = false;
 let settingsUiTimer = 0;
+let settingsPanelIdCounter = 0;
 let focusShortcutInstalled = false;
 const FOCUS_MODE_OFF = 0;
 const FOCUS_MODE_PARTIAL = 1;
@@ -1862,7 +1892,7 @@ function renderLoadedScriptMeta(){
     `;
 }
 
-function renderIssueBadgeColorSettings(){
+function renderIssueBadgeColorSettings(panelIdPrefix = "tm-settings-panel"){
 
     return `
         <div class="tm-settings-section">
@@ -1870,20 +1900,21 @@ function renderIssueBadgeColorSettings(){
             <div class="tm-settings-color-grid">
                 ${ISSUE_BADGE_COLOR_FIELDS.map(field => {
                     const value = getIssueBadgeColorSetting(field.key);
+                    const inputId = `${panelIdPrefix}-color-setting-${field.key}`;
 
                     return `
-                        <label class="tm-settings-color-option" title="${escapeHtml(field.description)}">
-                            <span class="tm-settings-color-label">${escapeHtml(field.label)}</span>
-                            <span class="tm-settings-color-control">
-                                <input
-                                    type="color"
-                                    class="tm-settings-color-input"
-                                    data-tm-color-setting="${field.key}"
-                                    value="${value}"
-                                    aria-label="${escapeHtml(`${field.label}: ${field.description}`)}"
-                                >
-                            </span>
-                        </label>
+                        <div class="tm-settings-color-option">
+                            <label class="tm-settings-color-label" for="${inputId}" title="${escapeHtml(field.description)}">${escapeHtml(field.label)}</label>
+                            <input
+                                id="${inputId}"
+                                type="color"
+                                class="tm-settings-color-input"
+                                data-tm-color-setting="${field.key}"
+                                value="${value}"
+                                title="${escapeHtml(field.description)}"
+                                aria-label="${escapeHtml(`${field.label}: ${field.description}`)}"
+                            >
+                        </div>
                     `;
                 }).join("")}
             </div>
@@ -2126,29 +2157,46 @@ function getQuickFiltersContainer(){
 
 function renderSettingsPanel(panel){
 
+    if(!panel.dataset.tmSettingsPanelId){
+        settingsPanelIdCounter += 1;
+        panel.dataset.tmSettingsPanelId = String(settingsPanelIdCounter);
+    }
+
+    const panelIdPrefix = `tm-settings-panel-${panel.dataset.tmSettingsPanelId}`;
+
     panel.innerHTML = `
         <h3 class="tm-settings-title">Jira tweaks</h3>
-        <div class="tm-settings-list">
-            ${FEATURE_DEFINITIONS.map(feature => `
-                <label class="tm-settings-option">
-                    <input type="checkbox" data-tm-setting="${feature.key}" ${isFeatureEnabled(feature.key) ? "checked" : ""}>
-                    <span class="tm-settings-label-row" title="${escapeHtml(feature.description)}" aria-label="${escapeHtml(`${feature.label}: ${feature.description}`)}">
-                        <span class="tm-settings-label">${escapeHtml(feature.label)}${feature.requiresReload ? '<span class="tm-settings-reload-chip">reload</span>' : ""}</span>
-                    </span>
-                </label>
-            `).join("")}
-        </div>
-        ${renderIssueBadgeColorSettings()}
-        <div class="tm-settings-actions">
-            <div class="tm-settings-action-group">
-                <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
-                <a class="tm-settings-action-button tm-settings-repo-button" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" data-tm-settings-repo="true">GitHub repo</a>
+        <div class="tm-settings-scroll-area">
+            <div class="tm-settings-list">
+                ${FEATURE_DEFINITIONS.map(feature => {
+                    const inputId = `${panelIdPrefix}-setting-${feature.key}`;
+
+                    return `
+                        <div class="tm-settings-option">
+                            <input id="${inputId}" type="checkbox" data-tm-setting="${feature.key}" ${isFeatureEnabled(feature.key) ? "checked" : ""}>
+                            <label class="tm-settings-option-label" for="${inputId}" title="${escapeHtml(feature.description)}" aria-label="${escapeHtml(`${feature.label}: ${feature.description}`)}">
+                                <span class="tm-settings-label-row">
+                                    <span class="tm-settings-label">${escapeHtml(feature.label)}${feature.requiresReload ? '<span class="tm-settings-reload-chip">reload</span>' : ""}</span>
+                                </span>
+                            </label>
+                        </div>
+                    `;
+                }).join("")}
             </div>
-            <div class="tm-settings-action-group">
-                <button type="button" class="tm-settings-action-button tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
-            </div>
+            ${renderIssueBadgeColorSettings(panelIdPrefix)}
         </div>
-        ${renderLoadedScriptMeta()}
+        <div class="tm-settings-footer">
+            <div class="tm-settings-actions">
+                <div class="tm-settings-action-group">
+                    <button type="button" class="tm-settings-action-button tm-settings-update-button" data-tm-settings-update="true">Update now</button>
+                    <a class="tm-settings-action-button tm-settings-repo-button" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" data-tm-settings-repo="true">GitHub repo</a>
+                </div>
+                <div class="tm-settings-action-group">
+                    <button type="button" class="tm-settings-action-button tm-settings-reset-button" data-tm-settings-reset="true">Reset settings</button>
+                </div>
+            </div>
+            ${renderLoadedScriptMeta()}
+        </div>
     `;
 
     panel.querySelectorAll("input[data-tm-setting]").forEach(input=>{
