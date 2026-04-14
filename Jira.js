@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.20
+// @version      5.21
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -1904,7 +1904,6 @@ function renderIssueBadgeColorSettings(panelIdPrefix = "tm-settings-panel"){
 
                     return `
                         <div class="tm-settings-color-option">
-                            <label class="tm-settings-color-label" for="${inputId}" title="${escapeHtml(field.description)}">${escapeHtml(field.label)}</label>
                             <input
                                 id="${inputId}"
                                 type="color"
@@ -1914,6 +1913,7 @@ function renderIssueBadgeColorSettings(panelIdPrefix = "tm-settings-panel"){
                                 title="${escapeHtml(field.description)}"
                                 aria-label="${escapeHtml(`${field.label}: ${field.description}`)}"
                             >
+                            <label class="tm-settings-color-label" for="${inputId}" title="${escapeHtml(field.description)}">${escapeHtml(field.label)}</label>
                         </div>
                     `;
                 }).join("")}
