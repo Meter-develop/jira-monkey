@@ -232,7 +232,7 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     justify-content:center;
     background:var(--tm-issue-badge-bg);
     color:var(--tm-issue-badge-text);
-    width:calc(5ch + 12px);
+    width:calc(4.25ch + 10px);
     font-size:10px;
     font-variant-numeric:tabular-nums;
     font-weight:700;
@@ -554,6 +554,15 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-me
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta > *{
     flex:0 0 auto;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-assignee-slot{
+    flex:0 0 24px;
+    width:24px;
+    min-width:24px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-right-meta .ghx-extra-field,
@@ -2129,6 +2138,14 @@ function getBacklogAssigneeNode(card, estimateNode = null){
     return assigneeLeaf.closest(".ghx-avatar") || assigneeLeaf;
 }
 
+function isBacklogAssigneeMetaNode(node){
+
+    return Boolean(
+        node?.matches?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar")
+        || node?.querySelector?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar")
+    );
+}
+
 function decorateBacklogActionTrigger(node){
 
     if(!node?.isConnected) return null;
@@ -2178,6 +2195,9 @@ function resetBacklogCardSimplification(scope = document){
         });
         card.querySelectorAll(".tm-backlog-priority-node").forEach(node=>{
             node.classList.remove("tm-backlog-priority-node");
+        });
+        card.querySelectorAll(".tm-backlog-assignee-slot").forEach(node=>{
+            node.remove();
         });
 
         card.classList.remove(
@@ -2330,20 +2350,39 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
             moveBacklogNodeToRightMeta(priorityNode, keyRow, priorityReference);
         }
 
-        const rightMetaNodes = getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes, estimate);
+        const epicNode = getBacklogEpicNode(keyRow, fixedVersionLabel, extraFieldNodes);
+        const assigneeNode = getBacklogAssigneeNode(card, estimate);
+        const actionNode = decorateBacklogActionTrigger(getBacklogActionTrigger(card));
 
-        if(rightMetaNodes.length){
+        if(epicNode || assigneeNode || actionNode){
             const rightMeta = document.createElement("span");
+            const assigneeSlot = document.createElement("span");
+
             rightMeta.className = "tm-backlog-right-meta";
+            assigneeSlot.className = "tm-backlog-assignee-slot";
             keyRow.appendChild(rightMeta);
-            rightMetaNodes.forEach(node=>{
-                if(node.matches?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar") || node.querySelector?.(".ghx-avatar, .ghx-avatar-img, .ghx-auto-avatar")){
-                    ensureBacklogAssigneeTooltip(node);
+
+            if(epicNode){
+                suppressBacklogVisibleTitles(epicNode);
+                moveBacklogNodeToRightMeta(epicNode, rightMeta);
+            }
+
+            rightMeta.appendChild(assigneeSlot);
+
+            if(assigneeNode){
+                ensureBacklogAssigneeTooltip(assigneeNode);
+                moveBacklogNodeToRightMeta(assigneeNode, assigneeSlot);
+            }
+
+            if(actionNode){
+                if(isBacklogAssigneeMetaNode(actionNode)){
+                    ensureBacklogAssigneeTooltip(actionNode);
                 }else{
-                    suppressBacklogVisibleTitles(node);
+                    suppressBacklogVisibleTitles(actionNode);
                 }
-                moveBacklogNodeToRightMeta(node, rightMeta);
-            });
+
+                moveBacklogNodeToRightMeta(actionNode, rightMeta);
+            }
         }
 
         suppressBacklogVisibleTitles(summaryNode);
