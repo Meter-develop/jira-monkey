@@ -227,11 +227,14 @@ body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .ghx-key-link,
 body.tm-feature-optimize-issue-ids .tm-issue-key-layout .ghx-key .js-key-link,
 body.tm-feature-optimize-issue-ids .ghx-swimlane-header .ghx-parent-key{
     display:inline-flex;
+    flex:0 0 auto;
     align-items:center;
     justify-content:center;
     background:var(--tm-issue-badge-bg);
     color:var(--tm-issue-badge-text);
+    width:calc(5ch + 12px);
     font-size:10px;
+    font-variant-numeric:tabular-nums;
     font-weight:700;
     padding:0 6px;
     border-radius:10px;
@@ -460,6 +463,29 @@ body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplifi
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row > *{
     align-self:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-issue-type-node{
+    order:1;
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-priority-node{
+    order:0;
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+}
+
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-priority-node img,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-priority-node svg,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-priority-node .aui-icon,
+body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-priority-node [role="img"]{
+    transform:scale(.75);
+    transform-origin:center;
 }
 
 body.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .tm-backlog-simplified-row .ghx-end.ghx-estimate{
@@ -2056,6 +2082,32 @@ function getBacklogActionTrigger(card){
     return actionCandidate?.closest("button, a") || actionCandidate || null;
 }
 
+function getBacklogIssueTypeNode(card){
+
+    const issueTypeCandidate = card.querySelector(
+        ".ghx-issue-content .ghx-type, .ghx-issue-content .ghx-issue-type, .ghx-issue-content [data-tooltip*='issue type' i], .ghx-issue-content [aria-label*='issue type' i]"
+    );
+
+    if(!issueTypeCandidate?.isConnected) return null;
+
+    return issueTypeCandidate.closest(".ghx-type, .ghx-issue-type, .ghx-end, .ghx-extra-field") || issueTypeCandidate;
+}
+
+function getBacklogPriorityNode(card, estimateNode = null){
+
+    const priorityCandidate = card.querySelector(
+        ".ghx-issue-content .ghx-priority, .ghx-issue-content [data-tooltip*='priority' i], .ghx-issue-content [aria-label*='priority' i]"
+    );
+
+    if(!priorityCandidate?.isConnected) return null;
+
+    const priorityNode = priorityCandidate.closest(".ghx-priority, .ghx-end, .ghx-extra-field") || priorityCandidate;
+
+    if(estimateNode?.contains(priorityNode) || priorityNode === estimateNode) return null;
+
+    return priorityNode;
+}
+
 function getBacklogAssigneeNode(card, estimateNode = null){
 
     const wrappedAvatar = card.querySelector(".ghx-issue-content .ghx-avatar");
@@ -2120,6 +2172,12 @@ function resetBacklogCardSimplification(scope = document){
         restoreBacklogVisibleTitles(card);
         card.querySelectorAll(".tm-backlog-settings-trigger").forEach(node=>{
             node.classList.remove("tm-backlog-settings-trigger");
+        });
+        card.querySelectorAll(".tm-backlog-issue-type-node").forEach(node=>{
+            node.classList.remove("tm-backlog-issue-type-node");
+        });
+        card.querySelectorAll(".tm-backlog-priority-node").forEach(node=>{
+            node.classList.remove("tm-backlog-priority-node");
         });
 
         card.classList.remove(
@@ -2247,6 +2305,29 @@ function syncBacklogCardSimplification(scope = getBoardEnhancementScope()){
                     : null;
 
             moveBacklogNodeToRightMeta(estimate, keyRow, estimateReference);
+        }
+
+        const issueTypeNode = getBacklogIssueTypeNode(card);
+        const priorityNode = getBacklogPriorityNode(card, estimate);
+        const leadingMetaReference = keyNode?.parentNode === keyRow
+            ? keyNode
+            : summaryNode?.parentNode === keyRow
+                ? summaryNode
+                : keyRow.firstChild;
+
+        issueTypeNode?.classList.add("tm-backlog-issue-type-node");
+        priorityNode?.classList.add("tm-backlog-priority-node");
+
+        if(issueTypeNode && leadingMetaReference){
+            moveBacklogNodeToRightMeta(issueTypeNode, keyRow, leadingMetaReference);
+        }
+
+        if(priorityNode && (issueTypeNode?.parentNode === keyRow || leadingMetaReference)){
+            const priorityReference = issueTypeNode?.parentNode === keyRow
+                ? issueTypeNode
+                : leadingMetaReference;
+
+            moveBacklogNodeToRightMeta(priorityNode, keyRow, priorityReference);
         }
 
         const rightMetaNodes = getBacklogRightMetaNodes(card, keyRow, fixedVersionLabel, extraFieldNodes, estimate);
