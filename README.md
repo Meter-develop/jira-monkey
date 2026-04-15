@@ -46,9 +46,9 @@ For efficiency, the bootstrap keeps a short local cache of fetched sources:
 - script responses are cached for 15 minutes by default
 - passive update checks run about once per hour on matching pages by default
 - setting `cacheBust: true` in the manifest switches back to always-fresh dev-style fetching
-- use `Update now` in the Jira settings panel, the fallback `TM Check updates` page button when the cog is missing, or `TM Bootstrap: Check for updates now` in Tampermonkey to immediately check the latest manifest and matching scripts; the page only reloads when an approved update needs to be applied
+- use `Update now` in the Jira settings panel or `TM Bootstrap: Check for updates now` in Tampermonkey to immediately check the latest manifest and matching scripts; the page only reloads when an approved update needs to be applied
 
-When a passive check detects a newer loader, manifest, or script, the Jira settings cog turns red until you manually run `Update now`. If the page-level settings cog is unavailable, the loader now shows a fallback `TM Update` / `TM Check updates` button on matching Jira pages so you still have a recovery path. If the loader itself is outdated, the loader update takes priority and you are prompted to update that manually in Tampermonkey before applying other updates.
+When a passive check detects a newer loader, manifest, or script, the Jira settings cog turns red until you manually run `Update now`. If the loader itself is outdated, the loader update takes priority and you are prompted to update that manually in Tampermonkey before applying other updates.
 
 Update modals stay open until you use one of their buttons, so no more accidental backdrop or Escape-key vanish acts.
 
