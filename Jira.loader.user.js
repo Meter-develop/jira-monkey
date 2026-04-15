@@ -43,6 +43,7 @@
         scripts: []
     };
     const loadedScriptUrls = new Set();
+    const latestGitHubCommitCache = new Map();
     const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
     const UPDATE_LAUNCHER_ID = 'tm-bootstrap-update-launcher';
     let modalStylesInstalled = false;
@@ -1170,7 +1171,8 @@
     }
 
     async function fetchLoaderSelfRecord(forceRefresh = false) {
-        const response = await fetchText(appendCacheBust(LOADER_SELF_URL, forceRefresh), {
+        const resolvedRequest = await resolveGitHubRawRequestUrl(LOADER_SELF_URL, forceRefresh);
+        const response = await fetchText(appendCacheBust(resolvedRequest.requestUrl, forceRefresh && !resolvedRequest.resolvedCommitSha), {
             cacheKind: 'loader',
             cacheKey: LOADER_SELF_URL,
             cacheTtlMs: MANIFEST_CACHE_TTL_MS,
@@ -1534,6 +1536,10 @@
         };
     }
 
+    function buildGitHubRawContentUrl(reference, ref = reference.branch) {
+        return `https://raw.githubusercontent.com/${reference.owner}/${reference.repo}/${ref}/${reference.path}`;
+    }
+
     function requestText(url) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -1624,8 +1630,60 @@
         return Array.isArray(commits) ? commits : [];
     }
 
+    function getGitHubReferenceCacheKey(reference) {
+        return `${reference.owner}/${reference.repo}/${reference.branch}/${reference.path}`;
+    }
+
+    async function getLatestGitHubCommit(reference) {
+        const cacheKey = getGitHubReferenceCacheKey(reference);
+
+        if (latestGitHubCommitCache.has(cacheKey)) {
+            return latestGitHubCommitCache.get(cacheKey);
+        }
+
+        const latestCommit = (await fetchGitHubCommitHistory(reference))[0] || null;
+        latestGitHubCommitCache.set(cacheKey, latestCommit);
+        return latestCommit;
+    }
+
+    async function resolveGitHubRawRequestUrl(url, preferExactCommit = false) {
+        if (!preferExactCommit) {
+            return {
+                requestUrl: url,
+                resolvedCommitSha: ''
+            };
+        }
+
+        const reference = parseGitHubRawReference(url);
+
+        if (!reference) {
+            return {
+                requestUrl: url,
+                resolvedCommitSha: ''
+            };
+        }
+
+        try {
+            const latestCommit = await getLatestGitHubCommit(reference);
+
+            if (latestCommit?.sha) {
+                return {
+                    requestUrl: buildGitHubRawContentUrl(reference, latestCommit.sha),
+                    resolvedCommitSha: latestCommit.sha
+                };
+            }
+        } catch (error) {
+            console.warn(`[TM bootstrap] Failed to resolve the latest commit for ${url}; falling back to the branch URL.`, error);
+        }
+
+        return {
+            requestUrl: url,
+            resolvedCommitSha: ''
+        };
+    }
+
     async function fetchCommitHashForPath(reference, commitSha) {
-        const rawUrl = `https://raw.githubusercontent.com/${reference.owner}/${reference.repo}/${commitSha}/${reference.path}`;
+        const rawUrl = buildGitHubRawContentUrl(reference, commitSha);
         const source = await requestText(rawUrl);
         return sha256Hex(source);
     }
@@ -1733,7 +1791,8 @@
     }
 
     async function fetchManifestRecord(forceRefresh = false) {
-        const response = await fetchText(appendCacheBust(MANIFEST_URL, forceRefresh), {
+        const resolvedRequest = await resolveGitHubRawRequestUrl(MANIFEST_URL, forceRefresh);
+        const response = await fetchText(appendCacheBust(resolvedRequest.requestUrl, forceRefresh && !resolvedRequest.resolvedCommitSha), {
             cacheKind: 'manifest',
             cacheKey: MANIFEST_URL,
             cacheTtlMs: MANIFEST_CACHE_TTL_MS,
@@ -1944,7 +2003,8 @@
     async function fetchRemoteScriptRecord(entry, cacheBustEnabled, defaultScriptCacheTtlMs, options = {}) {
         const { forceRefresh = false } = options;
         const shouldBypassCache = cacheBustEnabled || forceRefresh;
-        const requestUrl = appendCacheBust(entry.url, shouldBypassCache);
+        const resolvedRequest = await resolveGitHubRawRequestUrl(entry.url, shouldBypassCache);
+        const requestUrl = appendCacheBust(resolvedRequest.requestUrl, shouldBypassCache && !resolvedRequest.resolvedCommitSha);
         const cacheTtlMs = shouldBypassCache
             ? 0
             : getScriptCacheTtlMs(entry, defaultScriptCacheTtlMs);
@@ -1957,7 +2017,8 @@
         const expectedHash = getExpectedHash(entry);
 
         if (expectedHash && result.fromCache && normalizeHash(result.sourceHash) !== expectedHash) {
-            result = await fetchText(appendCacheBust(entry.url, true), {
+            const retryResolvedRequest = await resolveGitHubRawRequestUrl(entry.url, true);
+            result = await fetchText(appendCacheBust(retryResolvedRequest.requestUrl, !retryResolvedRequest.resolvedCommitSha), {
                 cacheKind: 'script',
                 cacheKey: entry.url,
                 cacheTtlMs,
