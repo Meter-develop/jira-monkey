@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.8
+// @version      4.9
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -25,7 +25,6 @@
     const MANIFEST_EXPECTED_HASH = '';
     const TRUST_STORE_KEY = 'tm-bootstrap-approved-script-hashes-v1';
     const APPROVED_SOURCE_STORE_KEY = 'tm-bootstrap-approved-sources-v1';
-    const DOMAIN_WHITELIST_ENABLED_KEY = 'tm-bootstrap-domain-whitelist-enabled-v1';
     const DOMAIN_WHITELIST_KEY = 'tm-bootstrap-domain-whitelist-v1';
     const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
@@ -637,22 +636,6 @@
         await storage.set(APPROVED_SOURCE_STORE_KEY, JSON.stringify(Object.fromEntries(nextEntries), null, 2));
     }
 
-    async function readDomainWhitelistEnabled() {
-        const storage = getStorage();
-        const raw = await storage.get(DOMAIN_WHITELIST_ENABLED_KEY, 'false');
-
-        if (typeof raw === 'boolean') {
-            return raw;
-        }
-
-        return String(raw || '').trim().toLowerCase() === 'true';
-    }
-
-    async function writeDomainWhitelistEnabled(enabled) {
-        const storage = getStorage();
-        await storage.set(DOMAIN_WHITELIST_ENABLED_KEY, String(Boolean(enabled)));
-    }
-
     async function readDomainWhitelist() {
         const storage = getStorage();
         const raw = await storage.get(DOMAIN_WHITELIST_KEY, '[]');
@@ -742,15 +725,12 @@
     }
 
     async function getDomainWhitelistState() {
-        const [enabled, domains] = await Promise.all([
-            readDomainWhitelistEnabled(),
-            readDomainWhitelist()
-        ]);
+        const domains = await readDomainWhitelist();
         const currentHostname = getCurrentHostname();
         const currentHostnameAllowed = isHostnameWhitelisted(currentHostname, domains);
 
         return {
-            enabled,
+            enabled: true,
             domains,
             currentHostname,
             currentHostnameAllowed
@@ -759,14 +739,12 @@
 
     async function getDomainAccessDecision() {
         const state = await getDomainWhitelistState();
-        const allowed = !state.enabled || state.currentHostnameAllowed;
-        const reason = !state.enabled
-            ? 'Domain whitelist disabled.'
-            : state.currentHostname
-                ? state.currentHostnameAllowed
-                    ? 'Current hostname is locally whitelisted.'
-                    : 'Current hostname is not in the local whitelist.'
-                : 'This page does not expose a hostname, so the whitelist cannot match it.';
+        const allowed = state.currentHostnameAllowed;
+        const reason = state.currentHostname
+            ? state.currentHostnameAllowed
+                ? 'Current hostname is locally whitelisted.'
+                : 'Current hostname is not in the local whitelist.'
+            : 'This page does not expose a hostname, so the whitelist cannot match it.';
 
         return {
             ...state,
@@ -870,6 +848,11 @@
 
     function extractComparableLoaderFunctionSource(value) {
         const normalizedSource = normalizeSourceText(value);
+
+        if (/^function\s+bootstrapLoader\s*\(\)\s*\{/.test(normalizedSource)) {
+            return normalizedSource;
+        }
+
         const startMarker = '(function bootstrapLoader() {';
         const endMarker = '})();';
         const startIndex = normalizedSource.indexOf(startMarker);
@@ -895,7 +878,7 @@
     }
 
     async function getInstalledLoaderHash() {
-        const source = normalizeSourceText(getInstalledLoaderSource());
+        const source = extractComparableLoaderFunctionSource(getInstalledLoaderSource());
 
         if (!source) {
             return '';
@@ -906,7 +889,8 @@
 
     async function getInstalledLoaderRuntimeHash() {
         try {
-            return await sha256Hex(normalizeSourceText(bootstrapLoader.toString()));
+            const source = extractComparableLoaderFunctionSource(bootstrapLoader.toString()) || normalizeSourceText(bootstrapLoader.toString());
+            return await sha256Hex(source);
         } catch {
             return '';
         }
@@ -1278,39 +1262,6 @@
         await installManagementMenu();
     }
 
-    async function setDomainWhitelistEnabled(enabled) {
-        const nextEnabled = Boolean(enabled);
-        const previousDecision = await getDomainAccessDecision();
-
-        if (previousDecision.enabled === nextEnabled) {
-            notifyUser(
-                'Domain whitelist unchanged',
-                `The domain whitelist is already ${nextEnabled ? 'enabled' : 'disabled'}.`
-            );
-            await refreshManagementMenu();
-            return false;
-        }
-
-        await writeDomainWhitelistEnabled(nextEnabled);
-        await refreshManagementMenu();
-
-        const nextDecision = await getDomainAccessDecision();
-
-        notifyUser(
-            nextEnabled ? 'Domain whitelist enabled' : 'Domain whitelist disabled',
-            nextEnabled
-                ? 'Only locally whitelisted domains can load scripts from this loader on this device.'
-                : 'The loader can load scripts on every domain again.'
-        );
-
-        if (previousDecision.allowed !== nextDecision.allowed) {
-            window.location.reload();
-            return true;
-        }
-
-        return false;
-    }
-
     async function whitelistCurrentDomain() {
         const currentHostname = getCurrentHostname();
 
@@ -1446,7 +1397,6 @@
                             <div class="tm-bootstrap-modal__list" data-tm-whitelist-list></div>
                         </div>
                         <div class="tm-bootstrap-modal__review-actions">
-                            <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-toggle="true"></button>
                             <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-current="true"></button>
                             <button type="button" class="tm-bootstrap-modal__button tm-bootstrap-modal__button--danger" data-tm-whitelist-clear="true">Clear all domains</button>
                         </div>
@@ -1460,7 +1410,6 @@
             const dialog = overlay.querySelector('.tm-bootstrap-modal');
             const summaryNode = overlay.querySelector('[data-tm-whitelist-summary]');
             const listNode = overlay.querySelector('[data-tm-whitelist-list]');
-            const toggleButton = overlay.querySelector('[data-tm-whitelist-toggle]');
             const currentButton = overlay.querySelector('[data-tm-whitelist-current]');
             const clearButton = overlay.querySelector('[data-tm-whitelist-clear]');
             const closeButton = overlay.querySelector('[data-tm-whitelist-close]');
@@ -1485,8 +1434,8 @@
                 currentState = await getDomainWhitelistState();
                 summaryNode.innerHTML = [
                     renderModalDetailRow({
-                        label: 'Whitelist status',
-                        value: currentState.enabled ? 'Enabled' : 'Disabled'
+                        label: 'Whitelist policy',
+                        value: 'Always enabled'
                     }),
                     renderModalDetailRow({
                         label: 'Current domain',
@@ -1495,9 +1444,7 @@
                     }),
                     renderModalDetailRow({
                         label: 'Current domain allowed',
-                        value: currentState.enabled
-                            ? (currentState.currentHostnameAllowed ? 'Yes' : 'No')
-                            : 'Whitelist disabled'
+                        value: currentState.currentHostnameAllowed ? 'Yes' : 'No'
                     })
                 ].join('');
 
@@ -1515,7 +1462,6 @@
                     `).join('')
                     : '<div class="tm-bootstrap-modal__list-empty">No domains are stored yet. Add the current site from the menu or this dialog when you are ready.</div>';
 
-                toggleButton.textContent = currentState.enabled ? 'Disable whitelist' : 'Enable whitelist';
                 currentButton.textContent = currentState.currentHostname
                     ? (currentState.currentHostnameAllowed ? 'Remove current domain' : 'Whitelist current domain')
                     : 'Current domain unavailable';
@@ -1541,16 +1487,6 @@
                 setBusy(true);
 
                 try {
-                    if (actionButton.hasAttribute('data-tm-whitelist-toggle')) {
-                        const reloaded = await setDomainWhitelistEnabled(!currentState?.enabled);
-
-                        if (!reloaded) {
-                            await render();
-                        }
-
-                        return;
-                    }
-
                     if (actionButton.hasAttribute('data-tm-whitelist-current')) {
                         const reloaded = currentState?.currentHostnameAllowed
                             ? await removeCurrentDomainFromWhitelist()
@@ -1625,13 +1561,6 @@
         registerManagementMenuCommand('TM Bootstrap: Check for updates now', () => {
             void runManualUpdateCheck();
         });
-
-        registerManagementMenuCommand(
-            `TM Bootstrap: ${whitelistState.enabled ? 'Disable' : 'Enable'} domain whitelist`,
-            () => {
-                void setDomainWhitelistEnabled(!whitelistState.enabled);
-            }
-        );
 
         if (whitelistState.currentHostname) {
             registerManagementMenuCommand(
@@ -1711,16 +1640,14 @@
         record.source = normalizeSourceText(record.source);
         record.sourceHash = normalizeHash(await ensureRecordHash(record));
 
-        const installedHash = normalizeHash(await getInstalledLoaderHash());
-        const installedRuntimeHash = installedHash
+        const installedComparableHashFromSource = normalizeHash(await getInstalledLoaderHash());
+        const installedRuntimeHash = installedComparableHashFromSource
             ? ''
             : normalizeHash(await getInstalledLoaderRuntimeHash());
         const installedVersion = getInstalledLoaderVersion();
         const availableVersion = String(record.metadata?.version || '').trim();
-        const availableComparableHash = installedHash
-            ? record.sourceHash
-            : normalizeHash(await getComparableRemoteLoaderHash(record.source)) || record.sourceHash;
-        const installedComparableHash = installedHash || installedRuntimeHash;
+        const availableComparableHash = normalizeHash(await getComparableRemoteLoaderHash(record.source)) || record.sourceHash;
+        const installedComparableHash = installedComparableHashFromSource || installedRuntimeHash;
         const hasUpdate = installedComparableHash
             ? availableComparableHash !== installedComparableHash
             : Boolean(availableVersion) && compareVersions(availableVersion, installedVersion) > 0;
