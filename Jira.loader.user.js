@@ -25,6 +25,8 @@
     const MANIFEST_EXPECTED_HASH = '';
     const TRUST_STORE_KEY = 'tm-bootstrap-approved-script-hashes-v1';
     const APPROVED_SOURCE_STORE_KEY = 'tm-bootstrap-approved-sources-v1';
+    const DOMAIN_WHITELIST_ENABLED_KEY = 'tm-bootstrap-domain-whitelist-enabled-v1';
+    const DOMAIN_WHITELIST_KEY = 'tm-bootstrap-domain-whitelist-v1';
     const SOURCE_CACHE_KEY = 'tm-bootstrap-source-cache-v1';
     const FORCE_REFRESH_FLAG_KEY = 'tm-bootstrap-force-refresh-once';
     const UPDATE_API_NAME = '__tmBootstrapCheckForUpdatesNow';
@@ -44,8 +46,10 @@
     };
     const loadedScriptUrls = new Set();
     const latestGitHubCommitCache = new Map();
+    const managementMenuCommandIds = [];
     const MODAL_ROOT_ID = 'tm-bootstrap-modal-root';
     let modalStylesInstalled = false;
+    let managementMenuInstalledWithoutUnregister = false;
     let approvalPromptCount = 0;
     let manualUpdatePromise = null;
 
@@ -272,6 +276,103 @@
             #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--primary:hover {
                 background: #0055cc;
             }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--danger {
+                border-color: #ae2e24;
+                color: #ae2e24;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__button--danger:hover {
+                background: #ffeceb;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__section {
+                display: grid;
+                gap: 10px;
+                padding: 12px;
+                border-radius: 10px;
+                background: #f7f8f9;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__section-title {
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: #44546f;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__note {
+                font-size: 12px;
+                color: #5e6c84;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list {
+                display: grid;
+                gap: 8px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list-empty {
+                padding: 12px;
+                border: 1px dashed #c1c7d0;
+                border-radius: 10px;
+                background: #ffffff;
+                color: #5e6c84;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list-item {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                padding: 10px 12px;
+                border: 1px solid #dfe1e6;
+                border-radius: 10px;
+                background: #ffffff;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list-item-main {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list-item-main code {
+                font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+                font-size: 12px;
+                background: #f7f8f9;
+                padding: 2px 4px;
+                border-radius: 6px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__list-item-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 3px 8px;
+                border-radius: 999px;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__pill--enabled {
+                background: #dcfff1;
+                color: #216e4e;
+            }
+
+            #${MODAL_ROOT_ID} .tm-bootstrap-modal__pill--disabled {
+                background: #f1f2f4;
+                color: #44546f;
+            }
         `;
 
         if (typeof GM_addStyle === 'function') {
@@ -409,6 +510,64 @@
             .replace(/^sha256[:-]/, '');
     }
 
+    function normalizeHostname(value) {
+        const rawValue = String(value || '').trim();
+
+        if (!rawValue) {
+            return '';
+        }
+
+        try {
+            const parsed = new URL(
+                /^[a-z][a-z0-9+.-]*:\/\//i.test(rawValue)
+                    ? rawValue
+                    : `https://${rawValue}`
+            );
+
+            return String(parsed.hostname || '').trim().toLowerCase();
+        } catch {
+            const normalizedValue = rawValue
+                .toLowerCase()
+                .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+                .replace(/^\/+/, '')
+                .split(/[/?#]/, 1)[0]
+                .replace(/:\d+$/, '')
+                .replace(/^\.+|\.+$/g, '')
+                .trim();
+
+            if (!normalizedValue || /\s/.test(normalizedValue)) {
+                return '';
+            }
+
+            return normalizedValue;
+        }
+    }
+
+    function normalizeDomainList(value) {
+        const values = Array.isArray(value)
+            ? value
+            : typeof value === 'string'
+                ? value.split(/[\r\n,]+/)
+                : [];
+
+        return [...new Set(values.map(normalizeHostname).filter(Boolean))]
+            .sort((left, right) => left.localeCompare(right));
+    }
+
+    function getCurrentHostname() {
+        try {
+            return normalizeHostname(window.location?.hostname || location.hostname || '');
+        } catch {
+            return '';
+        }
+    }
+
+    function isHostnameWhitelisted(hostname, whitelist) {
+        const normalizedHostname = normalizeHostname(hostname);
+
+        return Boolean(normalizedHostname) && normalizeDomainList(whitelist).includes(normalizedHostname);
+    }
+
     function formatHashPreview(value) {
         const hash = normalizeHash(value);
         return hash ? `${hash.slice(0, 12)}…${hash.slice(-12)}` : '(none)';
@@ -476,6 +635,144 @@
             .slice(0, 25);
 
         await storage.set(APPROVED_SOURCE_STORE_KEY, JSON.stringify(Object.fromEntries(nextEntries), null, 2));
+    }
+
+    async function readDomainWhitelistEnabled() {
+        const storage = getStorage();
+        const raw = await storage.get(DOMAIN_WHITELIST_ENABLED_KEY, 'false');
+
+        if (typeof raw === 'boolean') {
+            return raw;
+        }
+
+        return String(raw || '').trim().toLowerCase() === 'true';
+    }
+
+    async function writeDomainWhitelistEnabled(enabled) {
+        const storage = getStorage();
+        await storage.set(DOMAIN_WHITELIST_ENABLED_KEY, String(Boolean(enabled)));
+    }
+
+    async function readDomainWhitelist() {
+        const storage = getStorage();
+        const raw = await storage.get(DOMAIN_WHITELIST_KEY, '[]');
+
+        try {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return normalizeDomainList(parsed);
+        } catch {
+            return normalizeDomainList(raw);
+        }
+    }
+
+    async function writeDomainWhitelist(domains) {
+        const storage = getStorage();
+        await storage.set(DOMAIN_WHITELIST_KEY, JSON.stringify(normalizeDomainList(domains), null, 2));
+    }
+
+    async function addDomainToWhitelist(hostname) {
+        const normalizedHostname = normalizeHostname(hostname);
+
+        if (!normalizedHostname) {
+            return {
+                changed: false,
+                hostname: '',
+                domains: await readDomainWhitelist()
+            };
+        }
+
+        const domains = await readDomainWhitelist();
+
+        if (domains.includes(normalizedHostname)) {
+            return {
+                changed: false,
+                hostname: normalizedHostname,
+                domains
+            };
+        }
+
+        const nextDomains = normalizeDomainList([...domains, normalizedHostname]);
+        await writeDomainWhitelist(nextDomains);
+
+        return {
+            changed: true,
+            hostname: normalizedHostname,
+            domains: nextDomains
+        };
+    }
+
+    async function removeDomainFromWhitelist(hostname) {
+        const normalizedHostname = normalizeHostname(hostname);
+        const domains = await readDomainWhitelist();
+
+        if (!normalizedHostname || !domains.includes(normalizedHostname)) {
+            return {
+                changed: false,
+                hostname: normalizedHostname,
+                domains
+            };
+        }
+
+        const nextDomains = domains.filter(domain => domain !== normalizedHostname);
+        await writeDomainWhitelist(nextDomains);
+
+        return {
+            changed: true,
+            hostname: normalizedHostname,
+            domains: nextDomains
+        };
+    }
+
+    async function clearDomainWhitelist() {
+        const domains = await readDomainWhitelist();
+
+        if (!domains.length) {
+            return {
+                changed: false,
+                domains
+            };
+        }
+
+        await writeDomainWhitelist([]);
+
+        return {
+            changed: true,
+            domains: []
+        };
+    }
+
+    async function getDomainWhitelistState() {
+        const [enabled, domains] = await Promise.all([
+            readDomainWhitelistEnabled(),
+            readDomainWhitelist()
+        ]);
+        const currentHostname = getCurrentHostname();
+        const currentHostnameAllowed = isHostnameWhitelisted(currentHostname, domains);
+
+        return {
+            enabled,
+            domains,
+            currentHostname,
+            currentHostnameAllowed
+        };
+    }
+
+    async function getDomainAccessDecision() {
+        const state = await getDomainWhitelistState();
+        const allowed = !state.enabled || state.currentHostnameAllowed;
+        const reason = !state.enabled
+            ? 'Domain whitelist disabled.'
+            : state.currentHostname
+                ? state.currentHostnameAllowed
+                    ? 'Current hostname is locally whitelisted.'
+                    : 'Current hostname is not in the local whitelist.'
+                : 'This page does not expose a hostname, so the whitelist cannot match it.';
+
+        return {
+            ...state,
+            allowed,
+            reason
+        };
     }
 
     function readForceRefreshFlag() {
@@ -942,16 +1239,418 @@
         return promptForApproval(record);
     }
 
-    function installManagementMenu() {
+    function clearManagementMenu() {
+        if (typeof GM_unregisterMenuCommand !== 'function') {
+            managementMenuCommandIds.length = 0;
+            return;
+        }
+
+        while (managementMenuCommandIds.length) {
+            const commandId = managementMenuCommandIds.pop();
+
+            try {
+                GM_unregisterMenuCommand(commandId);
+            } catch {}
+        }
+    }
+
+    function registerManagementMenuCommand(label, handler) {
         if (typeof GM_registerMenuCommand !== 'function') {
             return;
         }
 
-        GM_registerMenuCommand('TM Bootstrap: Check for updates now', () => {
+        const commandId = GM_registerMenuCommand(label, handler);
+
+        if (commandId != null) {
+            managementMenuCommandIds.push(commandId);
+        }
+    }
+
+    async function refreshManagementMenu() {
+        if (typeof GM_registerMenuCommand !== 'function') {
+            return;
+        }
+
+        if (managementMenuInstalledWithoutUnregister && typeof GM_unregisterMenuCommand !== 'function') {
+            return;
+        }
+
+        await installManagementMenu();
+    }
+
+    async function setDomainWhitelistEnabled(enabled) {
+        const nextEnabled = Boolean(enabled);
+        const previousDecision = await getDomainAccessDecision();
+
+        if (previousDecision.enabled === nextEnabled) {
+            notifyUser(
+                'Domain whitelist unchanged',
+                `The domain whitelist is already ${nextEnabled ? 'enabled' : 'disabled'}.`
+            );
+            await refreshManagementMenu();
+            return false;
+        }
+
+        await writeDomainWhitelistEnabled(nextEnabled);
+        await refreshManagementMenu();
+
+        const nextDecision = await getDomainAccessDecision();
+
+        notifyUser(
+            nextEnabled ? 'Domain whitelist enabled' : 'Domain whitelist disabled',
+            nextEnabled
+                ? 'Only locally whitelisted domains can load scripts from this loader on this device.'
+                : 'The loader can load scripts on every domain again.'
+        );
+
+        if (previousDecision.allowed !== nextDecision.allowed) {
+            window.location.reload();
+            return true;
+        }
+
+        return false;
+    }
+
+    async function whitelistCurrentDomain() {
+        const currentHostname = getCurrentHostname();
+
+        if (!currentHostname) {
+            notifyUser('Whitelist skipped', 'This page does not expose a hostname that can be whitelisted.');
+            return false;
+        }
+
+        const previousDecision = await getDomainAccessDecision();
+        const result = await addDomainToWhitelist(currentHostname);
+        await refreshManagementMenu();
+
+        if (!result.changed) {
+            notifyUser('Domain already whitelisted', `${currentHostname} is already in the local whitelist.`);
+            return false;
+        }
+
+        const nextDecision = await getDomainAccessDecision();
+
+        notifyUser(
+            'Domain added to whitelist',
+            `${currentHostname} is now allowed for the loader on this device.`
+        );
+
+        if (previousDecision.allowed !== nextDecision.allowed) {
+            window.location.reload();
+            return true;
+        }
+
+        return false;
+    }
+
+    async function removeWhitelistedDomain(hostname) {
+        const normalizedHostname = normalizeHostname(hostname);
+
+        if (!normalizedHostname) {
+            notifyUser('Domain removal skipped', 'No valid hostname was provided for whitelist removal.');
+            return false;
+        }
+
+        const previousDecision = await getDomainAccessDecision();
+        const result = await removeDomainFromWhitelist(normalizedHostname);
+        await refreshManagementMenu();
+
+        if (!result.changed) {
+            notifyUser('Domain not found', `${normalizedHostname} is not currently in the local whitelist.`);
+            return false;
+        }
+
+        const nextDecision = await getDomainAccessDecision();
+
+        notifyUser(
+            'Domain removed from whitelist',
+            `${normalizedHostname} is no longer allowed for the loader on this device.`
+        );
+
+        if (previousDecision.allowed !== nextDecision.allowed) {
+            window.location.reload();
+            return true;
+        }
+
+        return false;
+    }
+
+    async function removeCurrentDomainFromWhitelist() {
+        const currentHostname = getCurrentHostname();
+
+        if (!currentHostname) {
+            notifyUser('Whitelist removal skipped', 'This page does not expose a hostname that can be removed.');
+            return false;
+        }
+
+        return removeWhitelistedDomain(currentHostname);
+    }
+
+    async function clearAllWhitelistedDomains() {
+        const previousDecision = await getDomainAccessDecision();
+        const result = await clearDomainWhitelist();
+        await refreshManagementMenu();
+
+        if (!result.changed) {
+            notifyUser('Whitelist already empty', 'No locally whitelisted domains were stored on this device.');
+            return false;
+        }
+
+        const nextDecision = await getDomainAccessDecision();
+
+        notifyUser(
+            'Whitelist cleared',
+            'All locally whitelisted domains were removed from Tampermonkey storage on this device.'
+        );
+
+        if (previousDecision.allowed !== nextDecision.allowed) {
+            window.location.reload();
+            return true;
+        }
+
+        return false;
+    }
+
+    async function showDomainWhitelistManagementModal() {
+        const mountNode = await waitForModalMountNode();
+
+        if (!mountNode) {
+            notifyUser('Whitelist manager unavailable', 'The whitelist manager could not open on this page.');
+            return false;
+        }
+
+        ensureModalStyles();
+
+        return new Promise(resolve => {
+            const previousFocus = document.activeElement;
+            const existingModal = document.getElementById(MODAL_ROOT_ID);
+
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            let currentState = null;
+            const overlay = document.createElement('div');
+            overlay.id = MODAL_ROOT_ID;
+            overlay.tabIndex = -1;
+            overlay.innerHTML = `
+                <div class="tm-bootstrap-modal" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ROOT_ID}-title">
+                    <div class="tm-bootstrap-modal__header">
+                        <h2 id="${MODAL_ROOT_ID}-title" class="tm-bootstrap-modal__title">Manage whitelisted domains</h2>
+                    </div>
+                    <div class="tm-bootstrap-modal__body">
+                        <div class="tm-bootstrap-modal__details" data-tm-whitelist-summary></div>
+                        <div class="tm-bootstrap-modal__section">
+                            <div class="tm-bootstrap-modal__section-title">Whitelisted domains</div>
+                            <div class="tm-bootstrap-modal__note">Stored locally in Tampermonkey on this device only. Nothing from this list is read from the repository.</div>
+                            <div class="tm-bootstrap-modal__list" data-tm-whitelist-list></div>
+                        </div>
+                        <div class="tm-bootstrap-modal__review-actions">
+                            <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-toggle="true"></button>
+                            <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-current="true"></button>
+                            <button type="button" class="tm-bootstrap-modal__button tm-bootstrap-modal__button--danger" data-tm-whitelist-clear="true">Clear all domains</button>
+                        </div>
+                    </div>
+                    <div class="tm-bootstrap-modal__actions">
+                        <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-close="true">Close</button>
+                    </div>
+                </div>
+            `;
+
+            const dialog = overlay.querySelector('.tm-bootstrap-modal');
+            const summaryNode = overlay.querySelector('[data-tm-whitelist-summary]');
+            const listNode = overlay.querySelector('[data-tm-whitelist-list]');
+            const toggleButton = overlay.querySelector('[data-tm-whitelist-toggle]');
+            const currentButton = overlay.querySelector('[data-tm-whitelist-current]');
+            const clearButton = overlay.querySelector('[data-tm-whitelist-clear]');
+            const closeButton = overlay.querySelector('[data-tm-whitelist-close]');
+
+            const close = acknowledged => {
+                overlay.remove();
+
+                if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+                    previousFocus.focus();
+                }
+
+                resolve(Boolean(acknowledged));
+            };
+
+            const setBusy = busy => {
+                overlay.querySelectorAll('button').forEach(button => {
+                    button.disabled = busy;
+                });
+            };
+
+            const render = async () => {
+                currentState = await getDomainWhitelistState();
+                summaryNode.innerHTML = [
+                    renderModalDetailRow({
+                        label: 'Whitelist status',
+                        value: currentState.enabled ? 'Enabled' : 'Disabled'
+                    }),
+                    renderModalDetailRow({
+                        label: 'Current domain',
+                        value: currentState.currentHostname || '(unavailable)',
+                        code: Boolean(currentState.currentHostname)
+                    }),
+                    renderModalDetailRow({
+                        label: 'Current domain allowed',
+                        value: currentState.enabled
+                            ? (currentState.currentHostnameAllowed ? 'Yes' : 'No')
+                            : 'Whitelist disabled'
+                    })
+                ].join('');
+
+                listNode.innerHTML = currentState.domains.length
+                    ? currentState.domains.map(domain => `
+                        <div class="tm-bootstrap-modal__list-item">
+                            <div class="tm-bootstrap-modal__list-item-main">
+                                <code>${escapeHtml(domain)}</code>
+                                ${domain === currentState.currentHostname ? '<span class="tm-bootstrap-modal__pill tm-bootstrap-modal__pill--enabled">Current domain</span>' : ''}
+                            </div>
+                            <div class="tm-bootstrap-modal__list-item-actions">
+                                <button type="button" class="tm-bootstrap-modal__button" data-tm-whitelist-remove-domain="${escapeHtml(domain)}">Remove</button>
+                            </div>
+                        </div>
+                    `).join('')
+                    : '<div class="tm-bootstrap-modal__list-empty">No domains are stored yet. Add the current site from the menu or this dialog when you are ready.</div>';
+
+                toggleButton.textContent = currentState.enabled ? 'Disable whitelist' : 'Enable whitelist';
+                currentButton.textContent = currentState.currentHostname
+                    ? (currentState.currentHostnameAllowed ? 'Remove current domain' : 'Whitelist current domain')
+                    : 'Current domain unavailable';
+                currentButton.disabled = !currentState.currentHostname;
+                clearButton.disabled = !currentState.domains.length;
+                setBusy(false);
+            };
+
+            dialog?.addEventListener('click', event => {
+                event.stopPropagation();
+            });
+
+            closeButton?.addEventListener('click', () => close(false));
+
+            overlay.addEventListener('click', async event => {
+                const actionButton = event.target.closest('button');
+
+                if (!actionButton || !overlay.contains(actionButton) || actionButton === closeButton) {
+                    return;
+                }
+
+                event.preventDefault();
+                setBusy(true);
+
+                try {
+                    if (actionButton.hasAttribute('data-tm-whitelist-toggle')) {
+                        const reloaded = await setDomainWhitelistEnabled(!currentState?.enabled);
+
+                        if (!reloaded) {
+                            await render();
+                        }
+
+                        return;
+                    }
+
+                    if (actionButton.hasAttribute('data-tm-whitelist-current')) {
+                        const reloaded = currentState?.currentHostnameAllowed
+                            ? await removeCurrentDomainFromWhitelist()
+                            : await whitelistCurrentDomain();
+
+                        if (!reloaded) {
+                            await render();
+                        }
+
+                        return;
+                    }
+
+                    if (actionButton.hasAttribute('data-tm-whitelist-clear')) {
+                        const confirmed = window.confirm('Clear every locally whitelisted domain from this device?');
+
+                        if (!confirmed) {
+                            await render();
+                            return;
+                        }
+
+                        const reloaded = await clearAllWhitelistedDomains();
+
+                        if (!reloaded) {
+                            await render();
+                        }
+
+                        return;
+                    }
+
+                    const removeDomain = actionButton.getAttribute('data-tm-whitelist-remove-domain');
+
+                    if (removeDomain) {
+                        const reloaded = await removeWhitelistedDomain(removeDomain);
+
+                        if (!reloaded) {
+                            await render();
+                        }
+
+                        return;
+                    }
+
+                    await render();
+                } catch (error) {
+                    console.error('[TM bootstrap] Failed while managing the domain whitelist.', error);
+                    notifyUser('Whitelist update failed', 'The loader could not update the local domain whitelist. See the console for details.');
+                    await render();
+                }
+            });
+
+            mountNode.appendChild(overlay);
+            setBusy(true);
+
+            void render().then(() => {
+                closeButton?.focus();
+            }).catch(error => {
+                console.error('[TM bootstrap] Failed to open the whitelist manager.', error);
+                notifyUser('Whitelist manager failed', 'The loader could not open the whitelist manager. See the console for details.');
+                close(false);
+            });
+        });
+    }
+
+    async function installManagementMenu() {
+        if (typeof GM_registerMenuCommand !== 'function') {
+            return;
+        }
+
+        const whitelistState = await getDomainWhitelistState();
+
+        clearManagementMenu();
+
+        registerManagementMenuCommand('TM Bootstrap: Check for updates now', () => {
             void runManualUpdateCheck();
         });
 
-        GM_registerMenuCommand('TM Bootstrap: Clear approved hashes', async () => {
+        registerManagementMenuCommand(
+            `TM Bootstrap: ${whitelistState.enabled ? 'Disable' : 'Enable'} domain whitelist`,
+            () => {
+                void setDomainWhitelistEnabled(!whitelistState.enabled);
+            }
+        );
+
+        if (whitelistState.currentHostname) {
+            registerManagementMenuCommand(
+                whitelistState.currentHostnameAllowed
+                    ? 'TM Bootstrap: Remove this domain from whitelist'
+                    : 'TM Bootstrap: Whitelist this domain',
+                () => {
+                    void (whitelistState.currentHostnameAllowed
+                        ? removeCurrentDomainFromWhitelist()
+                        : whitelistCurrentDomain());
+                }
+            );
+        }
+
+        registerManagementMenuCommand('TM Bootstrap: Manage whitelisted domains', () => {
+            void showDomainWhitelistManagementModal();
+        });
+
+        registerManagementMenuCommand('TM Bootstrap: Clear approved hashes', async () => {
             const confirmed = await showDecisionModal({
                 title: 'Clear approved hashes?',
                 message: 'This removes every locally approved manifest and script hash for the bootstrap loader. The next manifest or script update will ask for approval again.',
@@ -967,6 +1666,8 @@
             await clearApprovedSourceStore();
             notifyUser('Approved hashes cleared', 'The next manifest or script load will require approval again.');
         });
+
+        managementMenuInstalledWithoutUnregister = true;
     }
 
     async function showNoUpdatesModal() {
@@ -1957,8 +2658,17 @@
     }
 
     async function init() {
-        installManagementMenu();
+        await installManagementMenu();
         approvalPromptCount = 0;
+
+        const domainAccess = await getDomainAccessDecision();
+
+        if (!domainAccess.allowed) {
+            console.info(
+                `[TM bootstrap] Skipping manifest and script loading on ${location.href} because the current domain is not in the local whitelist. ${domainAccess.reason}`
+            );
+            return;
+        }
 
         const forceRefresh = consumeForceRefreshFlag();
         const manifest = await getExecutableManifest(forceRefresh);
