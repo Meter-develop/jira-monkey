@@ -4246,8 +4246,6 @@ function startObserver(){
                 scheduleEnsureSettingsUi(80);
             }
 
-            if(isApplying || (Date.now() < observerIgnoreUntil && !hasCriticalBoardMutation)) return;
-
             const shouldApply = hasCriticalBoardMutation || mutations.some(mutation=>
                 (
                     mutation.type === "childList"
@@ -4259,6 +4257,17 @@ function startObserver(){
                     && (!boardRoot || boardRoot.contains(mutation.target))
                 )
             );
+
+            if(isApplying) return;
+
+            if(Date.now() < observerIgnoreUntil && !hasCriticalBoardMutation){
+                if(shouldApply){
+                    markBoardDirty();
+                    scheduleApply(Math.max(0, observerIgnoreUntil - Date.now()) + 30);
+                }
+
+                return;
+            }
 
             if(shouldApply){
                 markBoardDirty();
