@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Local Tampermonkey Bootstrap
 // @namespace    https://github.com/Meter-develop/jira-monkey/
-// @version      4.7
+// @version      4.8
 // @description  Manually installed trusted loader for local userscripts; manifest and script updates only load after local approval.
 // @match        *://*/*
 // @run-at       document-start
@@ -17,7 +17,7 @@
 // @connect      raw.githubusercontent.com
 // ==/UserScript==
 
-(function () {
+(function bootstrapLoader() {
     'use strict';
 
     const MANIFEST_URL = 'https://raw.githubusercontent.com/Meter-develop/jira-monkey/main/loader.manifest.json';
@@ -571,6 +571,20 @@
             .trimEnd();
     }
 
+    function extractComparableLoaderFunctionSource(value) {
+        const normalizedSource = normalizeSourceText(value);
+        const startMarker = '(function bootstrapLoader() {';
+        const endMarker = '})();';
+        const startIndex = normalizedSource.indexOf(startMarker);
+        const endIndex = normalizedSource.lastIndexOf(endMarker);
+
+        if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+            return '';
+        }
+
+        return normalizedSource.slice(startIndex + 1, endIndex).trimEnd();
+    }
+
     function getInstalledLoaderSource() {
         const info = getGrantedApis().GM_info;
         const candidates = [
@@ -591,6 +605,24 @@
         }
 
         return sha256Hex(source);
+    }
+
+    async function getInstalledLoaderRuntimeHash() {
+        try {
+            return await sha256Hex(normalizeSourceText(bootstrapLoader.toString()));
+        } catch {
+            return '';
+        }
+    }
+
+    async function getComparableRemoteLoaderHash(source) {
+        const comparableSource = extractComparableLoaderFunctionSource(source);
+
+        if (!comparableSource) {
+            return '';
+        }
+
+        return sha256Hex(comparableSource);
     }
 
     function compareVersionTokens(leftToken, rightToken) {
@@ -979,17 +1011,25 @@
         record.sourceHash = normalizeHash(await ensureRecordHash(record));
 
         const installedHash = normalizeHash(await getInstalledLoaderHash());
+        const installedRuntimeHash = installedHash
+            ? ''
+            : normalizeHash(await getInstalledLoaderRuntimeHash());
         const installedVersion = getInstalledLoaderVersion();
         const availableVersion = String(record.metadata?.version || '').trim();
-        const hasUpdate = installedHash
-            ? record.sourceHash !== installedHash
+        const availableComparableHash = installedHash
+            ? record.sourceHash
+            : normalizeHash(await getComparableRemoteLoaderHash(record.source)) || record.sourceHash;
+        const installedComparableHash = installedHash || installedRuntimeHash;
+        const hasUpdate = installedComparableHash
+            ? availableComparableHash !== installedComparableHash
             : Boolean(availableVersion) && compareVersions(availableVersion, installedVersion) > 0;
 
         return {
             hasUpdate,
             installedVersion,
             availableVersion,
-            installedHash,
+            installedHash: installedComparableHash,
+            availableHash: availableComparableHash,
             record
         };
     }
@@ -1016,7 +1056,7 @@
                 },
                 {
                     label: 'Available hash',
-                    value: formatHashPreview(loaderStatus.record?.sourceHash),
+                    value: formatHashPreview(loaderStatus.availableHash || loaderStatus.record?.sourceHash),
                     code: true
                 },
                 {
