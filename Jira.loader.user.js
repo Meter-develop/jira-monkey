@@ -862,7 +862,7 @@
             return '';
         }
 
-        return normalizedSource.slice(startIndex + 1, endIndex).trimEnd();
+        return normalizedSource.slice(startIndex + 1, endIndex + 1).trimEnd();
     }
 
     function getInstalledLoaderSource() {
