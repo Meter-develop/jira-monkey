@@ -2970,6 +2970,10 @@ function closeSettingsPanel(){
     });
     document.querySelectorAll(".tm-settings-panel").forEach(panel=>{
         panel.setAttribute("hidden", "hidden");
+
+        if(panel.dataset.tmSettingsRenderPending === "true"){
+            refreshSettingsPanel(panel, { force: true });
+        }
     });
     document.querySelectorAll(".tm-settings-button").forEach(button=>{
         button.setAttribute("aria-expanded", "false");
@@ -3141,6 +3145,29 @@ function renderSettingsPanel(panel){
     });
 }
 
+function shouldDeferSettingsPanelRender(panel){
+
+    if(!panel?.isConnected || panel.hasAttribute("hidden") || !settingsPanelOpen) return false;
+
+    const activeElement = document.activeElement;
+
+    return activeElement instanceof Element && panel.contains(activeElement);
+}
+
+function refreshSettingsPanel(panel, { force = false } = {}){
+
+    if(!panel) return false;
+
+    if(!force && shouldDeferSettingsPanelRender(panel)){
+        panel.dataset.tmSettingsRenderPending = "true";
+        return false;
+    }
+
+    delete panel.dataset.tmSettingsRenderPending;
+    renderSettingsPanel(panel);
+    return true;
+}
+
 function installSettingsUiEvents(){
 
     if(settingsUiInstalled) return;
@@ -3187,7 +3214,7 @@ function installSettingsUiEvents(){
             const panel = getActiveSettingsPanel();
 
             if(panel){
-                renderSettingsPanel(panel);
+                refreshSettingsPanel(panel);
             }
         }
     });
@@ -3200,7 +3227,7 @@ function installSettingsUiEvents(){
         const panel = getActiveSettingsPanel();
 
         if(panel){
-            renderSettingsPanel(panel);
+            refreshSettingsPanel(panel);
         }
     });
 
@@ -3358,7 +3385,7 @@ function ensureSettingsUi(){
         slot.appendChild(panel);
     }
 
-    renderSettingsPanel(panel);
+    refreshSettingsPanel(panel);
     ensureBacklogSearchUi(container, slot);
 
     if(settingsPanelOpen){
