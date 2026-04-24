@@ -3389,7 +3389,11 @@ function ensureSettingsUi(){
     ensureBacklogSearchUi(container, slot);
 
     if(settingsPanelOpen){
-        openSettingsPanel(slot);
+        document.body?.classList.add("tm-settings-modal-open");
+        backdrop.removeAttribute("hidden");
+        panel.removeAttribute("hidden");
+        button.setAttribute("aria-expanded", "true");
+        positionSettingsPanel(slot);
     }else{
         closeSettingsPanel();
     }
