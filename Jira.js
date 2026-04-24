@@ -3147,11 +3147,11 @@ function renderSettingsPanel(panel){
 
 function shouldDeferSettingsPanelRender(panel){
 
-    if(!panel?.isConnected || panel.hasAttribute("hidden") || !settingsPanelOpen) return false;
-
-    const activeElement = document.activeElement;
-
-    return activeElement instanceof Element && panel.contains(activeElement);
+    return Boolean(
+        panel?.isConnected
+        && !panel.hasAttribute("hidden")
+        && settingsPanelOpen
+    );
 }
 
 function refreshSettingsPanel(panel, { force = false } = {}){
