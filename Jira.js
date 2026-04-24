@@ -4667,6 +4667,13 @@ function addColumnTotals(){
 /* ========================= */
 /* SORT */
 
+function getSwimlanePrimaryIssueKey(swimlane){
+
+    return swimlane?.querySelector(
+        ":scope > .ghx-swimlane-header[data-issue-key], :scope > .ghx-parent-group[data-issue-key], :scope > .js-fake-parent[data-issue-key], .ghx-swimlane-header[data-issue-key], .ghx-parent-group[data-issue-key], .js-fake-parent[data-issue-key]"
+    )?.dataset.issueKey || swimlane?.dataset.issueKey || "";
+}
+
 function sort(){
 
     const pool = document.getElementById("ghx-pool");
@@ -4675,13 +4682,16 @@ function sort(){
     const lanes = [...pool.querySelectorAll(":scope > .ghx-swimlane")];
 
     const active = [];
+    const other = [];
     const done = [];
 
     lanes.forEach(sl=>{
-        const key = sl.querySelector("[data-issue-key]")?.dataset.issueKey;
+        const key = getSwimlanePrimaryIssueKey(sl);
         const data = cache.get(key);
 
-        if(data?.resolved){
+        if(!key){
+            other.push(sl);
+        }else if(data?.resolved){
             done.push(sl);
         }else{
             active.push(sl);
@@ -4690,8 +4700,8 @@ function sort(){
 
     /* ACTIVE → priority (lower id = higher priority) */
     active.sort((a,b)=>{
-        const kA = a.querySelector("[data-issue-key]")?.dataset.issueKey;
-        const kB = b.querySelector("[data-issue-key]")?.dataset.issueKey;
+        const kA = getSwimlanePrimaryIssueKey(a);
+        const kB = getSwimlanePrimaryIssueKey(b);
 
         return (cache.get(kA)?.priority || 999)
              - (cache.get(kB)?.priority || 999);
@@ -4699,14 +4709,14 @@ function sort(){
 
     /* DONE → resolution date */
     done.sort((a,b)=>{
-        const kA = a.querySelector("[data-issue-key]")?.dataset.issueKey;
-        const kB = b.querySelector("[data-issue-key]")?.dataset.issueKey;
+        const kA = getSwimlanePrimaryIssueKey(a);
+        const kB = getSwimlanePrimaryIssueKey(b);
 
         return new Date(cache.get(kB)?.resolved || 0)
              - new Date(cache.get(kA)?.resolved || 0);
     });
 
-    const orderedLanes = [...active, ...done];
+    const orderedLanes = [...active, ...other, ...done];
 
     if(orderedLanes.every((lane, index) => lane === lanes[index])){
         return;
