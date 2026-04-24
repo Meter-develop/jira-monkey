@@ -357,19 +357,20 @@ body.tm-jira-board-view .ghx-swimlane-header .ghx-info .ghx-description{
 }
 
 body.tm-jira-board-view .ghx-swimlane-header{
-    min-height:26px;
+    padding-top:0 !important;
+    padding-bottom:0 !important;
 }
 
 body.tm-jira-board-view .ghx-swimlane-header .ghx-heading{
-    min-height:26px;
-    padding-top:1px;
-    padding-bottom:1px;
+    min-height:0 !important;
+    padding-top:0 !important;
+    padding-bottom:0 !important;
 }
 
 body.tm-jira-board-view .ghx-swimlane-header .ghx-info,
 body.tm-jira-board-view .ghx-swimlane-header .ghx-summary,
 body.tm-jira-board-view .ghx-swimlane-header .ghx-summary .aui-lozenge{
-    line-height:1.1;
+    line-height:1.05;
 }
 
 .tm-default-backlog-expander svg{
