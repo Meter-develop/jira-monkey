@@ -368,9 +368,24 @@ body.tm-jira-board-view .ghx-swimlane-header .ghx-heading{
 }
 
 body.tm-jira-board-view .ghx-swimlane-header .ghx-info,
-body.tm-jira-board-view .ghx-swimlane-header .ghx-summary,
-body.tm-jira-board-view .ghx-swimlane-header .ghx-summary .aui-lozenge{
-    line-height:1.05;
+body.tm-jira-board-view .ghx-swimlane-header .ghx-summary{
+    padding-top:0 !important;
+    padding-bottom:0 !important;
+}
+
+body.tm-jira-board-view .ghx-swimlane-header .jira-issue-status-lozenge,
+body.tm-jira-board-view .ghx-swimlane-header .aui-lozenge,
+body.tm-jira-board-view .ghx-swimlane-header .ghx-swimlane-avatar,
+body.tm-jira-board-view .ghx-swimlane-header .ghx-parent-key,
+body.tm-jira-board-view .ghx-swimlane-header .tm-story-points{
+    margin-top:0 !important;
+    margin-bottom:0 !important;
+}
+
+body.tm-jira-board-view .ghx-swimlane-header .jira-issue-status-lozenge,
+body.tm-jira-board-view .ghx-swimlane-header .aui-lozenge{
+    padding-top:0 !important;
+    padding-bottom:0 !important;
 }
 
 .tm-default-backlog-expander svg{
