@@ -352,6 +352,10 @@ body.tm-feature-optimize-issue-ids .ghx-swimlane-header .tm-resolved-issue-key:f
     text-decoration:none;
 }
 
+body.tm-jira-board-view .ghx-swimlane-header .ghx-info .ghx-description{
+    display:none !important;
+}
+
 .tm-default-backlog-expander svg{
     display:block;
     transition:transform .15s ease;
