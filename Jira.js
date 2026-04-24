@@ -356,6 +356,22 @@ body.tm-jira-board-view .ghx-swimlane-header .ghx-info .ghx-description{
     display:none !important;
 }
 
+body.tm-jira-board-view .ghx-swimlane-header{
+    min-height:26px;
+}
+
+body.tm-jira-board-view .ghx-swimlane-header .ghx-heading{
+    min-height:26px;
+    padding-top:1px;
+    padding-bottom:1px;
+}
+
+body.tm-jira-board-view .ghx-swimlane-header .ghx-info,
+body.tm-jira-board-view .ghx-swimlane-header .ghx-summary,
+body.tm-jira-board-view .ghx-swimlane-header .ghx-summary .aui-lozenge{
+    line-height:1.1;
+}
+
 .tm-default-backlog-expander svg{
     display:block;
     transition:transform .15s ease;
