@@ -3147,12 +3147,17 @@ function installSettingsUiEvents(){
 
     settingsUiInstalled = true;
 
-    document.addEventListener("click", event=>{
+    document.addEventListener("pointerdown", event=>{
 
-        const slot = getActiveSettingsSlot();
-        if(!slot?.contains(event.target)){
-            closeSettingsPanel();
+        if(!settingsPanelOpen) return;
+
+        const target = event.target;
+
+        if(target instanceof Element && target.closest(".tm-settings-panel, .tm-settings-button")){
+            return;
         }
+
+        closeSettingsPanel();
     });
 
     document.addEventListener("keydown", event=>{
