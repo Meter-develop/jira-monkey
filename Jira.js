@@ -369,7 +369,6 @@ body.tm-jira-board-view .ghx-swimlane-header .ghx-heading{
 
 body.tm-jira-board-view .ghx-swimlane-header .ghx-info,
 body.tm-jira-board-view .ghx-swimlane-header .ghx-summary{
-    line-height:normal !important;
     padding-top:0 !important;
     padding-bottom:0 !important;
 }
@@ -385,16 +384,6 @@ body.tm-jira-board-view .ghx-swimlane-header .tm-story-points{
 
 body.tm-jira-board-view .ghx-swimlane-header .jira-issue-status-lozenge,
 body.tm-jira-board-view .ghx-swimlane-header .aui-lozenge{
-    line-height:normal !important;
-    padding-top:0 !important;
-    padding-bottom:0 !important;
-}
-
-body.tm-jira-board-view .ghx-swimlane-header .ghx-heading-expander,
-body.tm-jira-board-view .ghx-swimlane-header .aui-button.ghx-heading-expander,
-body.tm-jira-board-view .ghx-swimlane-header .js-expander.ghx-heading-expander{
-    min-height:20px !important;
-    height:20px;
     padding-top:0 !important;
     padding-bottom:0 !important;
 }
