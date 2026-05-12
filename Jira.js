@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.23
+// @version      5.24
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -145,6 +145,18 @@ body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view
 body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
     opacity: 0;
     transition: opacity .12s ease;
+}
+
+html.tm-backlog-drop-refreshing #ghx-plan,
+html.tm-backlog-drop-refreshing #ghx-backlog,
+html.tm-backlog-drop-refreshing .ghx-backlog,
+html.tm-backlog-drop-refreshing .ghx-backlog-container,
+body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
+body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
+body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
+body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
+    opacity: 0 !important;
+    transition: none !important;
 }
 
 html.tm-backlog-ready #ghx-plan,
@@ -1061,7 +1073,8 @@ let hooksInstalled = false;
 let lastBoardRouteKey = "";
 let boardRefreshPending = false;
 let observerIgnoreUntil = 0;
-let backlogFastTrackObserverIgnoreUntil = 0;
+let backlogPointerInteraction = null;
+let backlogDropRefreshTimer = 0;
 let featureSettings = loadFeatureSettings();
 let settingsUiInstalled = false;
 let settingsPanelOpen = false;
@@ -2992,10 +3005,83 @@ function applyFastTrackBacklogEnhancements(){
 
     try{
         suppressObserver(220);
-        backlogFastTrackObserverIgnoreUntil = Math.max(backlogFastTrackObserverIgnoreUntil, Date.now() + 220);
         return syncFastTrackBacklogEnhancements();
     } finally {
         isApplying = false;
+    }
+}
+
+function finishBacklogDropRefresh(delay = 80){
+
+    window.clearTimeout(backlogDropRefreshTimer);
+
+    backlogDropRefreshTimer = window.setTimeout(()=>{
+        backlogDropRefreshTimer = 0;
+        toggleRenderStateClass("tm-backlog-drop-refreshing", false);
+
+        if(canFastTrackBacklogEnhancements()){
+            syncBacklogRenderState(true);
+        }else{
+            syncBacklogRenderState(false);
+        }
+    }, delay);
+}
+
+function shieldBacklogDropRefresh(){
+
+    if(!canFastTrackBacklogEnhancements()) return;
+
+    toggleRenderStateClass("tm-backlog-drop-refreshing", true);
+    syncBacklogRenderState(false);
+    scheduleApply(40);
+    finishBacklogDropRefresh(900);
+}
+
+function getBacklogInteractionIssue(event){
+
+    if(!canFastTrackBacklogEnhancements()) return null;
+
+    const issue = event.target?.closest?.(".ghx-issue, .js-issue");
+
+    if(!issue?.closest?.("#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container")){
+        return null;
+    }
+
+    return issue;
+}
+
+function beginBacklogPointerInteraction(event){
+
+    const issue = getBacklogInteractionIssue(event);
+
+    if(!issue) return;
+
+    backlogPointerInteraction = {
+        x: Number(event.clientX) || 0,
+        y: Number(event.clientY) || 0,
+        dragging: false
+    };
+}
+
+function updateBacklogPointerInteraction(event){
+
+    if(!backlogPointerInteraction) return;
+
+    const dx = (Number(event.clientX) || 0) - backlogPointerInteraction.x;
+    const dy = (Number(event.clientY) || 0) - backlogPointerInteraction.y;
+
+    if(Math.hypot(dx, dy) > 5){
+        backlogPointerInteraction.dragging = true;
+    }
+}
+
+function endBacklogPointerInteraction(event){
+
+    const wasDragging = Boolean(backlogPointerInteraction?.dragging);
+    backlogPointerInteraction = null;
+
+    if(wasDragging || event.type === "drop" || event.type === "dragend"){
+        shieldBacklogDropRefresh();
     }
 }
 
@@ -4172,12 +4258,27 @@ function isBacklogRefreshMutation(mutation, boardRoot){
     if(!canFastTrackBacklogEnhancements()) return false;
     if(mutation?.type !== "childList") return false;
 
-    if(doesMutationTouchContainer(mutation, boardRoot)) return true;
+    const backlogContainerSelector = "#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container";
+    const issueSelector = ".ghx-issue, .js-issue";
+    const target = mutation.target;
+
+    if(isElementNode(target)){
+        if(target.matches?.(backlogContainerSelector)) return true;
+
+        const targetIssue = target.closest?.(issueSelector);
+
+        if(targetIssue && !targetIssue.classList.contains("tm-backlog-simplified-card")){
+            return true;
+        }
+    }
 
     return [...mutation.addedNodes, ...mutation.removedNodes].some(node=>
         isElementNode(node)
-        && Boolean(node.matches?.("#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container, .ghx-issue, .js-issue")
-            || node.querySelector?.("#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container, .ghx-issue, .js-issue"))
+        && (
+            Boolean(node.matches?.(backlogContainerSelector) || node.querySelector?.(backlogContainerSelector))
+            || Boolean(node.matches?.(issueSelector) || node.querySelector?.(issueSelector))
+            || Boolean(node.closest?.(issueSelector) && !node.closest(issueSelector).classList.contains("tm-backlog-simplified-card"))
+        )
     );
 }
 
@@ -4311,6 +4412,18 @@ function installHooks(){
         document.addEventListener(eventName, guardBoardInteraction, true);
     });
 
+    document.addEventListener("pointerdown", beginBacklogPointerInteraction, true);
+    document.addEventListener("pointermove", updateBacklogPointerInteraction, true);
+    ["pointerup", "pointercancel", "drop", "dragend"].forEach(eventName=>{
+        document.addEventListener(eventName, endBacklogPointerInteraction, true);
+    });
+
+    document.addEventListener("dragstart", event=>{
+        if(getBacklogInteractionIssue(event)){
+            backlogPointerInteraction = { x: 0, y: 0, dragging: true };
+        }
+    }, true);
+
     document.addEventListener("keydown", event=>{
 
         if(event.key !== "Enter" && event.key !== " ") return;
@@ -4356,14 +4469,11 @@ function startObserver(){
 
             if(isApplying) return;
 
-            if(Date.now() < backlogFastTrackObserverIgnoreUntil && shouldApply){
-                return;
-            }
-
             if(hasBacklogRefreshMutation){
                 markBoardDirty();
 
                 if(applyFastTrackBacklogEnhancements()){
+                    finishBacklogDropRefresh(50);
                     scheduleApply(80);
                 }else{
                     scheduleApply(0);
