@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.24
+// @version      5.25
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -145,18 +145,6 @@ body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view
 body.tm-backlog-enhancing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
     opacity: 0;
     transition: opacity .12s ease;
-}
-
-html.tm-backlog-drop-refreshing #ghx-plan,
-html.tm-backlog-drop-refreshing #ghx-backlog,
-html.tm-backlog-drop-refreshing .ghx-backlog,
-html.tm-backlog-drop-refreshing .ghx-backlog-container,
-body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-plan,
-body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view #ghx-backlog,
-body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog,
-body.tm-backlog-drop-refreshing.tm-feature-simplify-backlog-cards.tm-jira-backlog-view .ghx-backlog-container {
-    opacity: 0 !important;
-    transition: none !important;
 }
 
 html.tm-backlog-ready #ghx-plan,
@@ -1074,7 +1062,6 @@ let lastBoardRouteKey = "";
 let boardRefreshPending = false;
 let observerIgnoreUntil = 0;
 let backlogPointerInteraction = null;
-let backlogDropRefreshTimer = 0;
 let featureSettings = loadFeatureSettings();
 let settingsUiInstalled = false;
 let settingsPanelOpen = false;
@@ -3011,30 +2998,29 @@ function applyFastTrackBacklogEnhancements(){
     }
 }
 
-function finishBacklogDropRefresh(delay = 80){
-
-    window.clearTimeout(backlogDropRefreshTimer);
-
-    backlogDropRefreshTimer = window.setTimeout(()=>{
-        backlogDropRefreshTimer = 0;
-        toggleRenderStateClass("tm-backlog-drop-refreshing", false);
-
-        if(canFastTrackBacklogEnhancements()){
-            syncBacklogRenderState(true);
-        }else{
-            syncBacklogRenderState(false);
-        }
-    }, delay);
-}
-
-function shieldBacklogDropRefresh(){
+function restyleBacklogAfterDrop(){
 
     if(!canFastTrackBacklogEnhancements()) return;
 
-    toggleRenderStateClass("tm-backlog-drop-refreshing", true);
-    syncBacklogRenderState(false);
-    scheduleApply(40);
-    finishBacklogDropRefresh(900);
+    const restyle = () => {
+        if(!canFastTrackBacklogEnhancements()) return;
+
+        if(applyFastTrackBacklogEnhancements()){
+            scheduleApply(80);
+        }else{
+            scheduleApply(0);
+        }
+    };
+
+    restyle();
+
+    if(typeof window.requestAnimationFrame === "function"){
+        window.requestAnimationFrame(restyle);
+    }
+
+    [40, 140, 320].forEach(delay=>{
+        window.setTimeout(restyle, delay);
+    });
 }
 
 function getBacklogInteractionIssue(event){
@@ -3081,7 +3067,7 @@ function endBacklogPointerInteraction(event){
     backlogPointerInteraction = null;
 
     if(wasDragging || event.type === "drop" || event.type === "dragend"){
-        shieldBacklogDropRefresh();
+        restyleBacklogAfterDrop();
     }
 }
 
@@ -4473,7 +4459,6 @@ function startObserver(){
                 markBoardDirty();
 
                 if(applyFastTrackBacklogEnhancements()){
-                    finishBacklogDropRefresh(50);
                     scheduleApply(80);
                 }else{
                     scheduleApply(0);
