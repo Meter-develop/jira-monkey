@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.22
+// @version      5.23
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -1061,6 +1061,7 @@ let hooksInstalled = false;
 let lastBoardRouteKey = "";
 let boardRefreshPending = false;
 let observerIgnoreUntil = 0;
+let backlogFastTrackObserverIgnoreUntil = 0;
 let featureSettings = loadFeatureSettings();
 let settingsUiInstalled = false;
 let settingsPanelOpen = false;
@@ -2960,6 +2961,44 @@ function applyImmediateFeatureState(){
     }
 }
 
+function canFastTrackBacklogEnhancements(){
+
+    return Boolean(
+        hasBoardEnhancementContext()
+        && isBacklogViewActive()
+        && isFeatureEnabled("simplifyBacklogCards")
+    );
+}
+
+function syncFastTrackBacklogEnhancements(scope = getBoardEnhancementScope()){
+
+    if(!canFastTrackBacklogEnhancements()) return false;
+
+    applyFeatureClasses();
+    syncIssueFieldTypography(scope);
+    syncBacklogCardSimplification(scope);
+    syncBacklogRenderState(true);
+    enhanceDefaultBacklogSections(scope);
+    applyBacklogSearchFilter(scope);
+
+    return true;
+}
+
+function applyFastTrackBacklogEnhancements(){
+
+    if(isApplying || !canFastTrackBacklogEnhancements()) return false;
+
+    isApplying = true;
+
+    try{
+        suppressObserver(220);
+        backlogFastTrackObserverIgnoreUntil = Math.max(backlogFastTrackObserverIgnoreUntil, Date.now() + 220);
+        return syncFastTrackBacklogEnhancements();
+    } finally {
+        isApplying = false;
+    }
+}
+
 function getFeatureDefinition(key){
 
     return FEATURE_DEFINITIONS.find(feature => feature.key === key);
@@ -4128,6 +4167,20 @@ function doesMutationTouchContainer(mutation, container){
     );
 }
 
+function isBacklogRefreshMutation(mutation, boardRoot){
+
+    if(!canFastTrackBacklogEnhancements()) return false;
+    if(mutation?.type !== "childList") return false;
+
+    if(doesMutationTouchContainer(mutation, boardRoot)) return true;
+
+    return [...mutation.addedNodes, ...mutation.removedNodes].some(node=>
+        isElementNode(node)
+        && Boolean(node.matches?.("#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container, .ghx-issue, .js-issue")
+            || node.querySelector?.("#ghx-plan, #ghx-backlog, .ghx-backlog, .ghx-backlog-container, .ghx-issue, .js-issue"))
+    );
+}
+
 function markBoardDirty({ hideBoard = false } = {}){
 
     boardRefreshPending = true;
@@ -4297,8 +4350,27 @@ function startObserver(){
                     && (!boardRoot || boardRoot.contains(mutation.target))
                 )
             );
+            const hasBacklogRefreshMutation = shouldApply && mutations.some(mutation=>
+                isBacklogRefreshMutation(mutation, boardRoot)
+            );
 
             if(isApplying) return;
+
+            if(Date.now() < backlogFastTrackObserverIgnoreUntil && shouldApply){
+                return;
+            }
+
+            if(hasBacklogRefreshMutation){
+                markBoardDirty();
+
+                if(applyFastTrackBacklogEnhancements()){
+                    scheduleApply(80);
+                }else{
+                    scheduleApply(0);
+                }
+
+                return;
+            }
 
             if(Date.now() < observerIgnoreUntil && !hasCriticalBoardMutation){
                 if(shouldApply){
@@ -4821,11 +4893,7 @@ async function applyBoardEnhancements(){
         applyFeatureClasses();
 
         if(shouldFastTrackBacklog){
-            syncIssueFieldTypography(enhancementScope);
-            syncBacklogCardSimplification(enhancementScope);
-            syncBacklogRenderState(true);
-            enhanceDefaultBacklogSections(enhancementScope);
-            applyBacklogSearchFilter(enhancementScope);
+            syncFastTrackBacklogEnhancements(enhancementScope);
         }
 
         await Promise.all([
