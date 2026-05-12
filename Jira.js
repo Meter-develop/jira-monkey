@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Jira Board Suite
-// @version      5.25
+// @version      5.26
 // @match        *://*/secure/RapidBoard.jspa*
 // @run-at       document-start
 // @grant        GM_addStyle
@@ -1079,6 +1079,9 @@ let currentUserInfoPromise = null;
 let lastHighlightDiagnosticKey = "";
 let userConfig = loadUserConfig();
 let backlogSearchQuery = "";
+let lastShortcutActivationTarget = null;
+let lastShortcutActivationAction = "";
+let lastShortcutActivationAt = 0;
 
 syncBacklogRenderState(false);
 
@@ -1636,22 +1639,55 @@ function openMailForAssignee(fullName){
     window.location.href = `mailto:${email}`;
 }
 
+function isPrimaryShortcutModifier(event){
+
+    return Boolean(event?.ctrlKey || event?.metaKey);
+}
+
+function shouldHandlePrimaryShortcutEvent(event){
+
+    if(!isPrimaryShortcutModifier(event)) return false;
+
+    return event.type !== "contextmenu" || Boolean(event.ctrlKey || event.metaKey);
+}
+
+function isDuplicateShortcutActivation(target, action, thresholdMs = 450){
+
+    const now = Date.now();
+    const isDuplicate = target
+        && lastShortcutActivationTarget === target
+        && lastShortcutActivationAction === action
+        && now - lastShortcutActivationAt < thresholdMs;
+
+    lastShortcutActivationTarget = target || null;
+    lastShortcutActivationAction = action || "";
+    lastShortcutActivationAt = now;
+
+    return isDuplicate;
+}
+
 function handleAssigneeAvatarClick(event){
 
     if(!isFeatureEnabled("enableAvatarQuickActions")) return;
+
+    if(event.type === "contextmenu" && !shouldHandlePrimaryShortcutEvent(event)) return;
 
     const fullName = event.currentTarget?.dataset.tmAssigneeFullName || extractAssigneeName(event.currentTarget);
 
     if(!fullName) return;
 
-    if(event.ctrlKey){
+    if(shouldHandlePrimaryShortcutEvent(event)){
         event.preventDefault();
         event.stopPropagation();
+        event.stopImmediatePropagation?.();
+
+        if(isDuplicateShortcutActivation(event.currentTarget, "assignee-teams")) return;
+
         openTeamsForAssignee(fullName);
         return;
     }
 
-    if(event.shiftKey){
+    if(event.type !== "contextmenu" && event.shiftKey){
         event.preventDefault();
         event.stopPropagation();
         openMailForAssignee(fullName);
@@ -1683,11 +1719,18 @@ function applyAssigneeEnhancements(scope = getBoardEnhancementScope()){
         if(wrappedAvatar){
             wrappedAvatar.dataset.tmAssigneeFullName = fullName;
             setAssigneeTooltip(wrappedAvatar, fullName);
+
+            if(!wrappedAvatar.dataset.tmAssigneeHandler){
+                wrappedAvatar.dataset.tmAssigneeHandler = "true";
+                wrappedAvatar.addEventListener("click", handleAssigneeAvatarClick);
+                wrappedAvatar.addEventListener("contextmenu", handleAssigneeAvatarClick);
+            }
         }
 
         if(!avatar.dataset.tmAssigneeHandler){
             avatar.dataset.tmAssigneeHandler = "true";
             avatar.addEventListener("click", handleAssigneeAvatarClick);
+            avatar.addEventListener("contextmenu", handleAssigneeAvatarClick);
         }
 
         const firstName = fullName.split(" ")[0] || fullName;
@@ -3733,7 +3776,7 @@ function setAllSprintAndBacklogCollapsed(collapsed, scope = document){
 
 function handleExpanderCtrlClick(event){
 
-    if(!event.ctrlKey) return;
+    if(!shouldHandlePrimaryShortcutEvent(event)) return;
 
     const button = event.target?.closest?.(".ghx-expander.ghx-heading-expander");
 
@@ -3748,6 +3791,8 @@ function handleExpanderCtrlClick(event){
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();
+
+    if(isDuplicateShortcutActivation(button, "expander-toggle-all")) return;
 
     const nextCollapsed = isDefaultBacklogButton
         ? !container.classList.contains("tm-default-backlog-collapsed")
@@ -4381,6 +4426,7 @@ function installHooks(){
     window.addEventListener("popstate", handleNavigation);
     window.addEventListener("hashchange", handleNavigation);
     document.addEventListener("click", handleExpanderCtrlClick, true);
+    document.addEventListener("contextmenu", handleExpanderCtrlClick, true);
 
     const guardBoardInteraction = event=>{
 
